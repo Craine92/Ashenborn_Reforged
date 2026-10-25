@@ -7,10 +7,12 @@ signal restart_requested
 signal connection_menu_requested
 signal combat_audio(cue: String)
 signal combat_sequence_started(card_name: String, boss_damage: int, player_damage: int)
+signal combat_sequence_finished
 
 var _round_label: Label
 var _connection_button: Button
 var _boss_hp_label: Label
+var _intent_label: Label
 var _boss_bar: ProgressBar
 var _player_hp_label: Label
 var _player_bar: ProgressBar
@@ -128,7 +130,9 @@ func set_state(state: Dictionary) -> void:
 	var hero_state: Dictionary = primary_player.get("hero", state.get("hero", {}))
 	var player_hp: int = primary_player.get("hp", state.get("player_hp", 0))
 	_boss_bar.max_value = state.get("boss_max_hp", 30)
-	_update_player_displays(state_players)
+	var intent: Dictionary = state.get("boss_intent", {})
+	_update_intent_display(intent)
+	_update_player_displays(state_players, intent)
 
 	for index in _cards.size():
 		_cards[index].visible = index < _current_hand.size()
@@ -292,6 +296,13 @@ func _build_encounter() -> Control:
 	title.add_theme_font_size_override("font_size", 13)
 	title.add_theme_color_override("font_color", UIStyle.MUTED)
 	boss_info.add_child(title)
+	_intent_label = Label.new()
+	_intent_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_intent_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_intent_label.custom_minimum_size = Vector2(390, 38)
+	_intent_label.add_theme_font_size_override("font_size", 16)
+	_intent_label.add_theme_color_override("font_color", UIStyle.GOLD)
+	boss_info.add_child(_intent_label)
 	_boss_bar = _health_bar(UIStyle.CYAN, Vector2(390, 20))
 	boss_info.add_child(_boss_bar)
 	_boss_hp_label = _health_label(22)
@@ -485,7 +496,7 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	_kill_active_tweens()
 	var selected: Dictionary = state["selected_upgrade"]
 	var combat: Dictionary = state.get("combat", {})
-	var target_boss_hp: int = state["boss_hp"]
+	var target_boss_hp: int = int(combat.get("boss_hp_after", state["boss_hp"]))
 	var target_player_hp: int = state["player_hp"]
 	var boss_damage := int(combat.get("hero_damage", maxi(0, old_boss_hp - target_boss_hp)))
 	var player_damage := int(combat.get("boss_damage", maxi(0, old_player_hp - target_player_hp)))
@@ -513,6 +524,12 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	if not selected.get("unlocked", false):
 		upgrade_message = "%s – RANG %d" % [String(selected["name"]).to_upper(), int(selected.get("acquired_rank", 1))]
 	_show_status(upgrade_message, rarity_color)
+	var new_synergies: Array = combat.get("new_synergies", [])
+	if not new_synergies.is_empty():
+		_show_status("NEUE SYNERGIE ENTDECKT – %s" % String(new_synergies[0].get("name", "")).to_upper(), UIStyle.CYAN)
+		await get_tree().create_timer(0.45).timeout
+		if sequence != _sequence_id:
+			return
 
 	var reveal := _new_tween()
 	reveal.set_parallel(true)
@@ -566,14 +583,7 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 		_finish_outcome("victory", sequence)
 		return
 
-	_show_status("MORVATH LÄDT SEINE MAGIE", UIStyle.RED.lightened(0.2))
-	await _boss_animator.play_once("energy_charge", false)
-	if sequence != _sequence_id:
-		return
-	_show_status("MORVATH SCHLÄGT ZURÜCK", UIStyle.RED.lightened(0.2))
-	combat_audio.emit("boss_attack")
-	await _boss_animator.play_once("skull_swarm" if int(state.get("round", 1)) % 2 == 0 else "spell_blast")
-	if sequence != _sequence_id:
+	if not await _play_boss_intent(combat, sequence):
 		return
 
 	if blocked > 0:
@@ -585,7 +595,9 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	var player_origin := _player_panel.position
 	var retaliation := _new_tween()
 	retaliation.set_parallel(true)
-	retaliation.tween_method(_set_player_health_float, float(hp_after_heal), float(target_player_hp), 0.22)
+	var target_data: Dictionary = combat.get("boss_targets", [{}])[0] if not combat.get("boss_targets", []).is_empty() else {}
+	var hp_after_damage := int(target_data.get("hp_after_damage", target_player_hp))
+	retaliation.tween_method(_set_player_health_float, float(hp_after_heal), float(hp_after_damage), 0.22)
 	retaliation.tween_property(_player_panel, "modulate", Color(1, 0.42, 0.42, 1), 0.07)
 	var player_shake := _new_tween()
 	player_shake.tween_property(_player_panel, "position", player_origin + Vector2(10, 0), 0.045)
@@ -594,6 +606,12 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	await get_tree().create_timer(0.23).timeout
 	if sequence != _sequence_id:
 		return
+	var synergy_healing := int(target_data.get("synergy_healing", 0))
+	if synergy_healing > 0:
+		_show_status("BLUTSCHILD +%d LP" % synergy_healing, Color("61d884"))
+		_show_value(_hero_heal_label, "+%d" % synergy_healing, Vector2(-18, -20))
+		_set_player_health(target_player_hp)
+		await get_tree().create_timer(0.18).timeout
 
 	var recover := _new_tween()
 	recover.set_parallel(true)
@@ -605,6 +623,8 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 		return
 	if state["phase"] == "defeat":
 		_finish_outcome("defeat", sequence)
+	else:
+		combat_sequence_finished.emit()
 
 
 func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
@@ -636,6 +656,12 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 		_attacker_card.visible = true
 		var rank_text := "FREIGESCHALTET" if upgrade.get("unlocked", false) else "RANG %d" % int(upgrade.get("acquired_rank", 1))
 		_show_status("%s · %s %s" % [player_name, String(upgrade.get("name", "UPGRADE")).to_upper(), rank_text], player_color)
+		var new_synergies: Array = attack.get("new_synergies", [])
+		if not new_synergies.is_empty():
+			_show_status("NEUE SYNERGIE ENTDECKT – %s" % String(new_synergies[0].get("name", "")).to_upper(), UIStyle.CYAN)
+			await get_tree().create_timer(0.45).timeout
+			if sequence != _sequence_id:
+				return
 		var reveal := _new_tween()
 		reveal.set_parallel(true)
 		reveal.tween_property(_attacker_card, "modulate:a", 1.0, 0.12)
@@ -675,14 +701,7 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 			return
 		_finish_outcome("victory", sequence)
 		return
-	_show_status("MORVATH LÄDT SEINE MAGIE", UIStyle.RED.lightened(0.2))
-	await _boss_animator.play_once("energy_charge", false)
-	if sequence != _sequence_id:
-		return
-	_show_status("MORVATH SCHLÄGT EINMAL ZURÜCK", UIStyle.RED.lightened(0.2))
-	combat_audio.emit("boss_attack")
-	await _boss_animator.play_once("skull_swarm" if int(state.get("round", 1)) % 2 == 0 else "spell_blast")
-	if sequence != _sequence_id:
+	if not await _play_boss_intent(combat, sequence):
 		return
 	for target: Dictionary in combat.get("boss_targets", []):
 		if sequence != _sequence_id:
@@ -694,18 +713,48 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 		if blocked > 0:
 			message += " · SCHUTZ −%d" % blocked
 		_show_status(message, UIStyle.RED.lightened(0.2))
-		_set_player_health_for_id(player_id, int(target.get("hp_after", 0)))
+		_set_player_health_for_id(player_id, int(target.get("hp_after_damage", target.get("hp_after", 0))))
 		var target_panel: Control = _player_panel if player_id == GameState.DEFAULT_PLAYER_ID else _secondary_player_panel
 		var flash := _new_tween()
 		flash.tween_property(target_panel, "modulate", Color(1, 0.42, 0.42, 1), 0.06)
 		flash.tween_property(target_panel, "modulate", Color.WHITE, 0.10)
 		await flash.finished
+		var synergy_healing := int(target.get("synergy_healing", 0))
+		if synergy_healing > 0:
+			_show_status("%s · BLUTSCHILD +%d LP" % [String(target.get("display_name", "SPIELER")).to_upper(), synergy_healing], Color("61d884"))
+			_set_player_health_for_id(player_id, int(target.get("hp_after", 0)))
+			await get_tree().create_timer(0.18).timeout
 	var recover := _new_tween()
 	recover.set_parallel(true)
 	recover.tween_property(_boss_fx, "modulate:a", 0.0, 0.10)
 	await recover.finished
 	if state.get("phase", "") == "defeat":
 		_finish_outcome("defeat", sequence)
+	else:
+		combat_sequence_finished.emit()
+
+
+func _play_boss_intent(combat: Dictionary, sequence: int) -> bool:
+	var intent: Dictionary = combat.get("boss_intent", {})
+	var intent_name := String(intent.get("name", "MORVATHS ANGRIFF")).to_upper()
+	_show_status("MORVATH · %s" % intent_name, UIStyle.RED.lightened(0.2))
+	combat_audio.emit("boss_attack")
+	var animation_name := String(intent.get("animation", "spell_blast"))
+	if animation_name != "energy_charge":
+		await _boss_animator.play_once("energy_charge", false)
+		if sequence != _sequence_id:
+			return false
+	await _boss_animator.play_once(animation_name)
+	if sequence != _sequence_id:
+		return false
+	var boss_healing := int(combat.get("boss_healing", 0))
+	if boss_healing > 0:
+		_show_status("DUNKLES RITUAL · MORVATH +%d LP" % boss_healing, Color("61d884"))
+		_show_value(_boss_damage_label, "+%d" % boss_healing)
+		var heal_tween := _new_tween()
+		heal_tween.tween_method(_set_boss_health_float, float(combat.get("boss_hp_before_heal", _displayed_boss_hp)), float(combat.get("boss_hp_after_heal", _displayed_boss_hp)), 0.24)
+		await heal_tween.finished
+	return sequence == _sequence_id
 
 
 func _play_round_intro(round_number: int, sequence: int) -> void:
@@ -751,7 +800,15 @@ func _show_ready_status(state: Dictionary) -> void:
 		_show_status("WARTE AUF SMARTPHONE-VERBINDUNG", UIStyle.GOLD)
 
 
-func _update_player_displays(state_players: Array) -> void:
+func _update_intent_display(intent: Dictionary) -> void:
+	if intent.is_empty():
+		_intent_label.text = ""
+		return
+	_intent_label.text = "NÄCHSTER ANGRIFF  ·  %s" % intent.get("display_text", intent.get("name", ""))
+	_intent_label.add_theme_color_override("font_color", Color(String(intent.get("target_color", UIStyle.GOLD.to_html(false)))) if intent.get("target_mode", "all") == "single" else UIStyle.GOLD)
+
+
+func _update_player_displays(state_players: Array, intent: Dictionary = {}) -> void:
 	if state_players.is_empty():
 		return
 	var primary: Dictionary = state_players[0]
@@ -763,8 +820,8 @@ func _update_player_displays(state_players: Array) -> void:
 	_player_panel.add_theme_stylebox_override("panel", UIStyle.box(UIStyle.PANEL_SOFT, primary_color.darkened(0.2), 2, 10))
 	_player_bar.max_value = primary.get("max_hp", 20)
 	_player_bar.add_theme_stylebox_override("fill", UIStyle.box(primary_color.darkened(0.16), primary_color.lightened(0.15), 1, 6))
-	_update_active_abilities(primary_hero.get("abilities", []))
-	_player_status_label.text = _player_status(primary)
+	_update_active_abilities(primary_hero)
+	_player_status_label.text = _player_status(primary, intent)
 	_player_status_label.add_theme_color_override("font_color", _player_status_color(primary))
 	_secondary_player_panel.visible = state_players.size() > 1
 	if state_players.size() > 1:
@@ -775,16 +832,18 @@ func _update_player_displays(state_players: Array) -> void:
 		_secondary_player_panel.add_theme_stylebox_override("panel", UIStyle.box(UIStyle.PANEL_SOFT, secondary_color.darkened(0.2), 2, 10))
 		_secondary_bar.max_value = secondary.get("max_hp", 20)
 		_secondary_bar.add_theme_stylebox_override("fill", UIStyle.box(secondary_color.darkened(0.16), secondary_color.lightened(0.15), 1, 6))
-		_secondary_abilities_label.text = _abilities_text(secondary.get("hero", {}).get("abilities", []))
-		_secondary_status_label.text = _player_status(secondary)
+		_secondary_abilities_label.text = _build_text(secondary.get("hero", {}))
+		_secondary_status_label.text = _player_status(secondary, intent)
 		_secondary_status_label.add_theme_color_override("font_color", _player_status_color(secondary))
 
 
-func _player_status(player: Dictionary) -> String:
+func _player_status(player: Dictionary, intent: Dictionary = {}) -> String:
 	if not player.get("alive", false):
 		return "GEFALLEN"
 	if not player.get("connected", false):
 		return "VERBINDUNG GETRENNT"
+	if intent.get("target_player_id", "") == player.get("id", ""):
+		return "ZIEL · %s" % String(intent.get("name", "ANGRIFF")).to_upper()
 	return "BEREIT" if player.get("ready", false) else "WÄHLT"
 
 
@@ -805,8 +864,19 @@ func _abilities_text(abilities: Array) -> String:
 	return "AKTIVE UPGRADES\n" + "  ·  ".join(entries)
 
 
-func _update_active_abilities(abilities: Array) -> void:
-	_abilities_label.text = _abilities_text(abilities)
+func _build_text(hero_state: Dictionary) -> String:
+	var text := _abilities_text(hero_state.get("abilities", []))
+	var synergies: Array = hero_state.get("synergies", [])
+	if synergies.is_empty():
+		return text
+	var entries: PackedStringArray = []
+	for synergy: Dictionary in synergies:
+		entries.append("%s · %s · %s" % [synergy.get("name", ""), synergy.get("requirements_text", ""), synergy.get("effect_text", "")])
+	return text + "\nSYNERGIEN\n" + "\n".join(entries)
+
+
+func _update_active_abilities(hero_state: Dictionary) -> void:
+	_abilities_label.text = _build_text(hero_state)
 
 
 func _show_triggered_effects(effects: Array, player_name: String) -> void:

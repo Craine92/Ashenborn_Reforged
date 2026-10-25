@@ -95,6 +95,9 @@ func _test_runtime_animator() -> void:
 	root.add_child(animator)
 	await process_frame
 	_check(animator.animation_names().size() == 6, "BossAnimator lädt alle Manifest-Sequenzen")
+	_check(is_equal_approx(animator.animation_info("spell_blast")["speed_multiplier"], 0.55), "Kampfanimationen laufen konfigurierbar mit 55 % Geschwindigkeit")
+	_check(animator.animation_info("death")["duration"] > animator.animation_info("spell_blast")["duration"], "Tod ist bewusst langsamer als der Kampfzauber")
+	_check(animator.animation_info("idle")["speed_multiplier"] > animator.animation_info("spell_blast")["speed_multiplier"], "Idle bleibt flüssiger als Kampfanimationen")
 	_check(animator.current_animation() == "idle" and animator.is_animation_playing(), "Idle startet automatisch als Loop")
 	var idle_start := animator.current_frame()
 	await create_timer(0.3).timeout

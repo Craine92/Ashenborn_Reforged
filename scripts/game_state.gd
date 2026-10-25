@@ -1,11 +1,13 @@
 class_name GameState
 extends Node
 
+const BossIntentDatabase = preload("res://scripts/boss_intent_database.gd")
+const SynergyDatabase = preload("res://scripts/synergy_database.gd")
+
 signal state_changed(snapshot: Dictionary)
 signal audio_cue(cue: String)
 
 const SOLO_BOSS_HP := 60
-const BOSS_DAMAGE := 2
 const HAND_SIZE := 3
 const MAX_SUPPORTED_PLAYERS := 6
 const DEFAULT_PLAYER_ID := "player_1"
@@ -25,12 +27,15 @@ var hand: Array[Dictionary] = []
 var selected_upgrade: Dictionary = {}
 var ability_ranks: Dictionary = {}
 var combat_result: Dictionary = {}
+var boss_intent: Dictionary = {}
 var result_text := "Wähle ein Upgrade."
 var phase := "menu"
-var resolution_delay := 4.0
+var resolution_delay := 12.0
 
 var _rng := RandomNumberGenerator.new()
 var _game_sequence := 0
+var _intent_cycle_offset := 0
+var _last_lance_target_index := -1
 
 
 func start_game(seed_value: int = -1, requested_player_ids: Array = []) -> void:
@@ -57,6 +62,9 @@ func start_game(seed_value: int = -1, requested_player_ids: Array = []) -> void:
 	boss_max_hp = SOLO_BOSS_HP * active_player_ids.size()
 	boss_hp = boss_max_hp
 	round_number = 1
+	_intent_cycle_offset = _rng.randi_range(0, BossIntentDatabase.INTENTS.size() - 1)
+	_last_lance_target_index = -1
+	_determine_boss_intent()
 	combat_result = {}
 	result_text = "Wählt eure Upgrades."
 	phase = "awaiting_selection"
@@ -75,6 +83,7 @@ func return_to_menu() -> void:
 	selected_upgrade = {}
 	ability_ranks.clear()
 	combat_result = {}
+	boss_intent = {}
 	result_text = ""
 	_emit_state()
 
@@ -187,6 +196,7 @@ func get_public_snapshot(include_private_hand: bool = false) -> Dictionary:
 		"ready_count": ready_count(),
 		"required_ready_count": required_ready_count(),
 		"combat": combat_result.duplicate(true),
+		"boss_intent": boss_intent.duplicate(true),
 		"result": result_text,
 		"phase": phase,
 		"can_select": false,
@@ -253,9 +263,27 @@ func set_counters_for_tests(hero_attacks: int, boss_attacks: int, player_id: Str
 
 func set_round_for_tests(value: int) -> void:
 	round_number = maxi(1, value)
+	_determine_boss_intent()
+
+
+func force_boss_intent_for_tests(intent_id: String, target_id: String = "") -> void:
+	var forced := BossIntentDatabase.get_intent(intent_id)
+	if forced.is_empty():
+		return
+	if forced.get("target_mode", "all") == "single":
+		var resolved_target := target_id if players.has(target_id) else _next_lance_target()
+		_apply_intent_target(forced, resolved_target)
+	forced["round"] = round_number
+	forced["display_text"] = BossIntentDatabase.display_text(forced)
+	boss_intent = forced
+	_emit_state()
 
 
 func finish_resolution_for_tests() -> void:
+	_finish_round(_game_sequence)
+
+
+func confirm_visual_resolution() -> void:
 	_finish_round(_game_sequence)
 
 
@@ -279,6 +307,7 @@ func _new_player(player_id: String, index: int) -> Dictionary:
 		"alive": true,
 		"hero_attack_count": 0,
 		"boss_attack_count": 0,
+		"discovered_synergies": {},
 	}
 
 
@@ -306,6 +335,7 @@ func _resolve_round() -> void:
 		var acquired := pending.duplicate(true)
 		acquired["acquired_rank"] = acquired_rank
 		acquired["unlocked"] = previous_rank == 0
+		var new_synergies := _discover_new_synergies(player)
 		player["selected_upgrade"] = acquired
 		player["pending_upgrade"] = {}
 		player["hero_attack_count"] = int(player["hero_attack_count"]) + 1
@@ -318,7 +348,8 @@ func _resolve_round() -> void:
 			conditional_bonus = AbilityDatabase.effect_value("blood_frenzy", "low_health_bonus", _rank(player, "blood_frenzy"))
 		var rune_damage := AbilityDatabase.effect_value("rune_bolt", "periodic_damage", _rank(player, "rune_bolt")) if round_number % 3 == 0 else 0
 		var soul_damage := AbilityDatabase.effect_value("soul_fire", "periodic_damage", _rank(player, "soul_fire")) if int(player["hero_attack_count"]) % 3 == 0 else 0
-		var hero_damage := base_damage + attack_bonus + conditional_bonus + rune_damage + soul_damage
+		var synergy_damage := 2 if rune_damage > 0 and SynergyDatabase.is_active("rune_blade", ranks) else 0
+		var hero_damage := base_damage + attack_bonus + conditional_bonus + rune_damage + soul_damage + synergy_damage
 		var boss_before := boss_hp
 		boss_hp = maxi(0, boss_hp - hero_damage)
 		var healing_power := AbilityDatabase.effect_value("life_steal", "healing", _rank(player, "life_steal"))
@@ -329,6 +360,8 @@ func _resolve_round() -> void:
 			triggered_effects.append("BLUTRAUSCH +%d SCHADEN" % conditional_bonus)
 		if rune_damage > 0:
 			triggered_effects.append("RUNENBLITZ +%d SCHADEN" % rune_damage)
+		if synergy_damage > 0:
+			triggered_effects.append("RUNENKLINGE +%d SCHADEN" % synergy_damage)
 		if soul_damage > 0:
 			triggered_effects.append("SEELENFEUER +%d SCHADEN" % soul_damage)
 		if healing > 0:
@@ -343,7 +376,9 @@ func _resolve_round() -> void:
 			"conditional_bonus": conditional_bonus,
 			"rune_damage": rune_damage,
 			"soul_damage": soul_damage,
+			"synergy_damage": synergy_damage,
 			"healing": healing,
+			"new_synergies": new_synergies,
 			"hero_hp_before": hp_before,
 			"hero_hp_after_heal": int(player["hp"]),
 			"boss_hp_before": boss_before,
@@ -353,28 +388,54 @@ func _resolve_round() -> void:
 		if boss_hp <= 0:
 			break
 
+	var boss_healing := 0
+	var boss_hp_before_heal := boss_hp
 	if boss_hp > 0:
-		for player_id in active_player_ids:
+		boss_healing = mini(int(boss_intent.get("healing", 0)), boss_max_hp - boss_hp)
+		boss_hp += boss_healing
+		var target_ids: Array[String] = []
+		if boss_intent.get("target_mode", "all") == "single":
+			var target_id := String(boss_intent.get("target_player_id", ""))
+			if players.has(target_id) and players[target_id].get("alive", false):
+				target_ids.append(target_id)
+		else:
+			for player_id in active_player_ids:
+				if players[player_id].get("alive", false):
+					target_ids.append(player_id)
+		for player_id in target_ids:
 			var player: Dictionary = players[player_id]
-			if not player.get("alive", false):
-				continue
 			player["boss_attack_count"] = int(player["boss_attack_count"]) + 1
 			var hp_before_hit := int(player["hp"])
 			var blocked := _bone_guard_reduction(player, int(player["boss_attack_count"]))
-			var incoming_damage := maxi(0, BOSS_DAMAGE - blocked)
-			player["hp"] = maxi(0, hp_before_hit - incoming_damage)
+			var incoming_damage := maxi(0, int(boss_intent.get("damage", 0)) - blocked)
+			var hp_after_damage := maxi(0, hp_before_hit - incoming_damage)
+			var synergy_healing := 0
+			if blocked > 0 and hp_after_damage > 0 and SynergyDatabase.is_active("blood_shield", player["ability_ranks"]):
+				synergy_healing = mini(1, int(player["hero"]["max_hp"]) - hp_after_damage)
+			player["hp"] = hp_after_damage + synergy_healing
 			player["alive"] = int(player["hp"]) > 0
 			boss_targets.append({
 				"player_id": player_id,
 				"display_name": player["display_name"],
 				"hp_before": hp_before_hit,
+				"hp_after_damage": hp_after_damage,
 				"hp_after": int(player["hp"]),
+				"base_damage": int(boss_intent.get("damage", 0)),
 				"boss_damage": incoming_damage,
 				"blocked": blocked,
+				"synergy_healing": synergy_healing,
 				"boss_attack_count": int(player["boss_attack_count"]),
 			})
 
-	combat_result = {"attacks": attacks, "boss_targets": boss_targets, "boss_attack_count": 1 if boss_hp > 0 else 0}
+	combat_result = {
+		"attacks": attacks,
+		"boss_targets": boss_targets,
+		"boss_attack_count": 1 if boss_hp > 0 else 0,
+		"boss_intent": boss_intent.duplicate(true),
+		"boss_healing": boss_healing,
+		"boss_hp_before_heal": boss_hp_before_heal,
+		"boss_hp_after_heal": boss_hp,
+	}
 	if not attacks.is_empty():
 		combat_result.merge(attacks[0], true)
 	if not boss_targets.is_empty():
@@ -398,20 +459,20 @@ func _resolve_round() -> void:
 		audio_cue.emit("defeat")
 		_emit_state()
 		return
-	result_text = "Die Aschenritter greifen an. Morvath schlägt einmal zurück."
+	result_text = "%s wird ausgeführt." % boss_intent.get("name", "Morvaths Angriff")
 	_emit_state()
 	var sequence := _game_sequence
-	var delay := resolution_delay if active_player_ids.size() == 1 else maxf(resolution_delay, 5.0)
-	if delay <= 0.0:
+	if resolution_delay <= 0.0:
 		_finish_round(sequence)
 	else:
-		get_tree().create_timer(delay).timeout.connect(func() -> void: _finish_round(sequence), CONNECT_ONE_SHOT)
+		get_tree().create_timer(resolution_delay).timeout.connect(func() -> void: _finish_round(sequence), CONNECT_ONE_SHOT)
 
 
 func _finish_round(sequence: int) -> void:
 	if sequence != _game_sequence or phase != "resolving":
 		return
 	round_number += 1
+	_determine_boss_intent()
 	combat_result = {}
 	for player_id in active_player_ids:
 		var player: Dictionary = players[player_id]
@@ -460,6 +521,7 @@ func _serialize_player(player: Dictionary, include_hand: bool) -> Dictionary:
 				"max_hp": player_hero["max_hp"],
 				"hero_attack_count": player["hero_attack_count"],
 			}),
+			"synergies": SynergyDatabase.active_synergies(player["ability_ranks"]),
 		},
 	}
 	if include_hand:
@@ -470,7 +532,13 @@ func _serialize_player(player: Dictionary, include_hand: bool) -> Dictionary:
 func _private_combat(player_id: String) -> Dictionary:
 	if combat_result.is_empty():
 		return {}
-	var private_result := {"boss_attack_count": combat_result.get("boss_attack_count", 0)}
+	var private_result := {
+		"boss_attack_count": combat_result.get("boss_attack_count", 0),
+		"boss_intent": combat_result.get("boss_intent", {}).duplicate(true),
+		"boss_healing": combat_result.get("boss_healing", 0),
+		"boss_hp_before_heal": combat_result.get("boss_hp_before_heal", 0),
+		"boss_hp_after_heal": combat_result.get("boss_hp_after_heal", 0),
+	}
 	var own_attacks: Array[Dictionary] = []
 	for attack: Dictionary in combat_result.get("attacks", []):
 		if attack.get("player_id", "") == player_id:
@@ -487,6 +555,52 @@ func _private_combat(player_id: String) -> Dictionary:
 		private_result["boss_damage"] = own_targets[0].get("boss_damage", 0)
 		private_result["blocked"] = own_targets[0].get("blocked", 0)
 	return private_result
+
+
+func _determine_boss_intent() -> void:
+	var intent_ids := BossIntentDatabase.ordered_ids()
+	if intent_ids.is_empty():
+		boss_intent = {}
+		return
+	var intent_id := intent_ids[(round_number - 1 + _intent_cycle_offset) % intent_ids.size()]
+	var intent := BossIntentDatabase.get_intent(intent_id)
+	if intent.get("target_mode", "all") == "single":
+		_apply_intent_target(intent, _next_lance_target())
+	intent["round"] = round_number
+	intent["display_text"] = BossIntentDatabase.display_text(intent)
+	boss_intent = intent
+
+
+func _next_lance_target() -> String:
+	var living: Array[String] = []
+	for player_id in active_player_ids:
+		if players.get(player_id, {}).get("alive", false):
+			living.append(player_id)
+	if living.is_empty():
+		return ""
+	_last_lance_target_index = (_last_lance_target_index + 1) % living.size()
+	return living[_last_lance_target_index]
+
+
+func _apply_intent_target(intent: Dictionary, player_id: String) -> void:
+	if not players.has(player_id):
+		return
+	var player: Dictionary = players[player_id]
+	intent["target_player_id"] = player_id
+	intent["target_display_name"] = player.get("display_name", "Spieler")
+	intent["target_color"] = player.get("color", "55cfe4")
+
+
+func _discover_new_synergies(player: Dictionary) -> Array[Dictionary]:
+	var discoveries: Array[Dictionary] = []
+	var known: Dictionary = player["discovered_synergies"]
+	for synergy: Dictionary in SynergyDatabase.active_synergies(player["ability_ranks"]):
+		var synergy_id := String(synergy["id"])
+		if known.has(synergy_id):
+			continue
+		known[synergy_id] = true
+		discoveries.append(synergy.duplicate(true))
+	return discoveries
 
 
 func _all_reachable_players_ready() -> bool:

@@ -52,6 +52,7 @@ func _run() -> void:
 	connection_overlay.close_requested.emit()
 	_check(not connection_overlay.visible, "Verbindungsmenü lässt sich wieder schließen")
 	game.resolution_delay = 0.0
+	game.force_boss_intent_for_tests("skull_storm")
 	game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	var cards: Array = battle.get("_cards")
 	var feedback_events: Array = []

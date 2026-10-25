@@ -6,6 +6,14 @@ signal frame_changed(animation_name: String, frame_index: int)
 signal animation_finished(animation_name: String)
 
 const DEFAULT_MANIFEST := "res://assets/bosses/morvath/manifest.json"
+const DEFAULT_SPEED_MULTIPLIERS := {
+	"idle": 0.80,
+	"energy_charge": 0.55,
+	"skull_swarm": 0.55,
+	"spell_blast": 0.55,
+	"hit_reaction": 0.55,
+	"death": 0.45,
+}
 
 var manifest_path := DEFAULT_MANIFEST
 var _animations: Dictionary = {}
@@ -16,6 +24,7 @@ var _playing := false
 var _looping := false
 var _generation := 0
 var _completed_generation := -1
+var speed_multipliers: Dictionary = DEFAULT_SPEED_MULTIPLIERS.duplicate()
 
 
 func _ready() -> void:
@@ -30,7 +39,7 @@ func _process(delta: float) -> void:
 	if not _playing or not _animations.has(_current_animation):
 		return
 	var animation: Dictionary = _animations[_current_animation]
-	var fps := maxf(1.0, float(animation.get("fps", 8.0)))
+	var fps := effective_fps(_current_animation)
 	_frame_elapsed += delta
 	var frame_duration := 1.0 / fps
 	while _frame_elapsed >= frame_duration and _playing:
@@ -64,8 +73,7 @@ func play_once(animation_name: String, return_to_idle: bool = true, timeout_seco
 	_generation += 1
 	var expected_generation := _generation
 	_start_animation(animation_name, false)
-	var animation: Dictionary = _animations[animation_name]
-	var expected_duration := float(animation.get("textures", []).size()) / maxf(1.0, float(animation.get("fps", 8.0)))
+	var expected_duration := animation_duration(animation_name)
 	var timeout := timeout_seconds if timeout_seconds > 0.0 else expected_duration + 0.5
 	var deadline := Time.get_ticks_msec() + int(timeout * 1000.0)
 	while _generation == expected_generation and _completed_generation != expected_generation and Time.get_ticks_msec() < deadline:
@@ -113,11 +121,34 @@ func animation_info(animation_name: String) -> Dictionary:
 	var source: Dictionary = _animations[animation_name]
 	return {
 		"name": animation_name,
-		"fps": source.get("fps", 0),
+		"fps": effective_fps(animation_name),
+		"base_fps": source.get("fps", 0),
+		"speed_multiplier": speed_multiplier(animation_name),
+		"duration": animation_duration(animation_name),
 		"frame_count": source.get("textures", []).size(),
 		"frame_size": source.get("frame_size", Vector2i.ZERO),
 		"files": source.get("files", []).duplicate(),
 	}
+
+
+func set_speed_multiplier(animation_name: String, multiplier: float) -> void:
+	speed_multipliers[animation_name] = maxf(0.05, multiplier)
+
+
+func speed_multiplier(animation_name: String) -> float:
+	return maxf(0.05, float(speed_multipliers.get(animation_name, 1.0)))
+
+
+func effective_fps(animation_name: String) -> float:
+	if not _animations.has(animation_name):
+		return 1.0
+	return maxf(0.1, float(_animations[animation_name].get("fps", 8.0)) * speed_multiplier(animation_name))
+
+
+func animation_duration(animation_name: String) -> float:
+	if not _animations.has(animation_name):
+		return 0.0
+	return float(_animations[animation_name].get("textures", []).size()) / effective_fps(animation_name)
 
 
 func current_animation() -> String:

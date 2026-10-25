@@ -94,10 +94,10 @@ func _test_authoritative_effects() -> void:
 	game.set_counters_for_tests(2, 0)
 	game.force_hand_for_tests(["bone_guard", "life_steal", "ash_blade"])
 	game.select_upgrade(0)
-	_check(game.combat_result["hero_damage"] == 22, "Basisangriff, Aschenklinge, Blutrausch, Runenblitz und Seelenfeuer addieren sich exakt")
-	_check(game.boss_hp == 38, "Zusatzschaden wird genau einmal auf Morvath angewendet")
+	_check(game.combat_result["hero_damage"] == 24, "Basisangriff, Fähigkeiten und Runenklinge addieren sich exakt")
+	_check(game.boss_hp == 36, "Zusatz- und Synergieschaden werden jeweils genau einmal auf Morvath angewendet")
 	var triggers: Array = game.combat_result["triggered_effects"]
-	_check(triggers.has("BLUTRAUSCH +5 SCHADEN") and triggers.has("RUNENBLITZ +4 SCHADEN") and triggers.has("SEELENFEUER +7 SCHADEN"), "Ausgelöste Fähigkeiten werden aus dem bestätigten Kampfergebnis gemeldet")
+	_check(triggers.has("BLUTRAUSCH +5 SCHADEN") and triggers.has("RUNENBLITZ +4 SCHADEN") and triggers.has("RUNENKLINGE +2 SCHADEN") and triggers.has("SEELENFEUER +7 SCHADEN"), "Ausgelöste Fähigkeiten und Synergien werden aus dem bestätigten Kampfergebnis gemeldet")
 	game.free()
 
 
@@ -210,6 +210,7 @@ func _new_game(seed_value: int) -> GameState:
 	root.add_child(game)
 	game.resolution_delay = 99.0
 	game.start_game(seed_value)
+	game.force_boss_intent_for_tests("skull_storm")
 	return game
 
 

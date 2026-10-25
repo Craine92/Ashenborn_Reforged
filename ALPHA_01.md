@@ -1,4 +1,15 @@
-# ASHENBORN REFORGED – Alpha 0.2B · Hero Identity, Build Tracking & Boss Animation
+# ASHENBORN REFORGED – Alpha 0.3A · Tactical Combat & Build Synergies
+
+## Neu in Alpha 0.3A
+
+- Drei vor der Auswahl festgelegte Boss-Intents mit öffentlicher Ziel- und Schadensanzeige
+- Runenklinge und Blutschild als datengetriebene Build-Synergien
+- Synergie-Entdeckung auf TV und Smartphone sowie aktive Synergien im Build-Menü
+- Bossanimationen mit konfigurierbaren, verlangsamten Laufzeitfaktoren
+- Darstellungsbestätigte Rundenbarriere mit sicherem Fallback
+- 400 automatisierte Solo-/Koop-Balancingläufe im Zielkorridor
+
+Die technischen Details und Messwerte stehen in `docs/alpha_03a_tactical_combat.md`.
 
 ## Start
 

@@ -29,6 +29,7 @@ func _run() -> void:
 	battle.set_connection_info("http://192.168.1.50:8765", true)
 	battle.set_smartphone_connected(true)
 	game.start_game(77, ["player_1", "player_2"])
+	game.force_boss_intent_for_tests("soul_lance", "player_2")
 	if "--controller-preview" in OS.get_cmdline_user_args():
 		server.end_match()
 	for _frame in 10:
@@ -36,7 +37,7 @@ func _run() -> void:
 	if "--controller-preview" in OS.get_cmdline_user_args():
 		await create_timer(30.0).timeout
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-battle.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02b_identity_arena.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_03a_intent_arena.png"))
 	game.select_upgrade("player_1", 0, "capture")
 	game.select_upgrade("player_2", 0, "capture")
 	var boss_animator: BossAnimator = battle.get("_boss_animator")
@@ -45,7 +46,7 @@ func _run() -> void:
 			break
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-attack-intro.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02b_hit_reaction.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_03a_tactical_combat.png"))
 	for _frame in 90:
 		if battle.get("_boss_damage_label").modulate.a >= 0.5:
 			break

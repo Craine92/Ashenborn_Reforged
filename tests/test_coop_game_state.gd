@@ -118,6 +118,7 @@ func _new_coop_game(seed_value: int) -> GameState:
 	root.add_child(game)
 	game.resolution_delay = 99.0
 	game.start_game(seed_value, ["player_1", "player_2"])
+	game.force_boss_intent_for_tests("skull_storm")
 	return game
 
 

@@ -45,7 +45,9 @@ func _test_http_public_surface() -> void:
 		_check(response[1] == 200 and body.contains("localStorage") and body.contains("type:'hello'"), "Controller unterstützt sitzungsgebundene Identität und Wiederverbindung")
 		_check(body.contains("BEREIT – WARTE AUF MITSPIELER") and not body.contains("fetch('/api/select"), "Controller wartet nach einem Tap ohne unsicheren HTTP-Fallback")
 		_check(body.contains("object-fit:contain") and body.contains("aspect-ratio:2/3"), "Mobile Karten bleiben proportional")
-		_check(body.contains("MEINE FÄHIGKEITEN") and body.contains("effect_text") and body.contains("trigger_text"), "Controller besitzt ein aufklappbares, zustandsbasiertes Build-Menü")
+		_check(body.contains("MEIN BUILD") and body.contains("effect_text") and body.contains("trigger_text") and body.contains("AKTIVE SYNERGIEN"), "Controller besitzt ein aufklappbares Build- und Synergie-Menü")
+		_check(body.contains("id=\"intent\"") and body.contains("DU BIST DAS ZIEL") and body.contains("boss_intent"), "Controller zeigt den festen Boss-Intent samt persönlicher Zielmarkierung")
+		_check(body.contains("FREIGESCHALTET") and body.contains("new_synergies"), "Controller meldet neue Synergien eindeutig")
 		_check(body.contains("id=\"identity\"") and body.contains("triggered_effects"), "Controller zeigt große Identität und tatsächlich ausgelöste Fähigkeiten")
 	error = request.request("http://127.0.0.1:18765/api/state")
 	if error == OK:
@@ -78,6 +80,7 @@ func _test_two_authenticated_clients() -> void:
 	var ids := _server.get_active_player_ids()
 	_server.begin_match(ids)
 	_game.start_game(77, ids)
+	_game.force_boss_intent_for_tests("skull_storm")
 	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"], "player_1")
 	_game.force_hand_for_tests(["rune_bolt", "blood_frenzy", "soul_fire"], "player_2")
 	_server.broadcast_state()

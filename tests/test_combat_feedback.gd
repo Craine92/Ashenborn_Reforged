@@ -26,21 +26,22 @@ func _run() -> void:
 	_check(boss_animator.current_animation() == "idle", "Morvath läuft während der Auswahl im Idle-Loop")
 
 	_game.start_game(13)
+	_game.force_boss_intent_for_tests("soul_lance", "player_1")
 	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	var cards: Array = _view.get("_cards")
 	_view.call("_on_card_pressed", cards[0])
 	_view.call("_on_card_pressed", cards[1])
-	_check(_game.boss_hp == 55 and _game.player_hp == 18, "Schneller Doppelklick verursacht nur einen bestätigten Heldenangriff")
-	_check(_events.size() == 1 and _events[0] == ["Aschenklinge", 5, 2], "Feedback übernimmt exakt 5 Helden- und 2 Bossschaden")
+	_check(_game.boss_hp == 55 and _game.player_hp == 16, "Schneller Doppelklick verursacht nur einen bestätigten Heldenangriff")
+	_check(_events.size() == 1 and _events[0] == ["Aschenklinge", 5, 4], "Feedback übernimmt exakt 5 Helden- und 4 angekündigten Lanzenschaden")
 	_check(String(_view.get("_abilities_label").text).contains("Aschenklinge R1"), "TV zeigt die aktive Fähigkeit mit Rang")
-	await create_timer(1.0).timeout
+	await create_timer(1.3).timeout
 	_check(_view.get("_displayed_boss_hp") == 55, "Boss-Lebensanzeige erreicht den autoritativen Wert")
+	await create_timer(1.4).timeout
+	_check(String(_view.get("_result_label").text).contains("SEELENLANZE"), "Morvaths angekündigter Intent wird im Gegenangriff sichtbar benannt")
+	await _view.combat_sequence_finished
 	_check(animation_events.has("hit_reaction") and animation_events.has("energy_charge"), "Trefferreaktion und Energieaufladung verwenden echte Sequenzen")
-	await create_timer(0.8).timeout
-	_check(String(_view.get("_result_label").text).contains("MORVATH SCHLÄGT ZURÜCK"), "Morvaths Gegenangriff wird sichtbar angekündigt")
-	_check(animation_events.has("spell_blast"), "Morvaths erster Gegenangriff verwendet Spell Blast")
-	await create_timer(0.9).timeout
-	_check(_view.get("_displayed_player_hp") == 18, "Helden-Lebensanzeige erreicht den autoritativen Wert")
+	_check(animation_events.has("spell_blast"), "Seelenlanze verwendet Spell Blast")
+	_check(_view.get("_displayed_player_hp") == 16, "Helden-Lebensanzeige erreicht den autoritativen Wert")
 	_check(_ordered(animation_events, ["hit_reaction", "energy_charge", "spell_blast"]), "Treffer, Aufladung und Angriff laufen in nachvollziehbarer Reihenfolge")
 
 	_game.finish_resolution_for_tests()
@@ -48,34 +49,38 @@ func _run() -> void:
 	_check(_game.round_number == 2 and String(_view.get("_result_label").text) == "WÄHLE EIN UPGRADE", "Rundenübergang endet in der nächsten Upgrade-Auswahl")
 
 	_game.start_game(21)
+	_game.force_boss_intent_for_tests("skull_storm")
 	_game.set_ability_rank_for_tests("life_steal", 1)
 	_game.set_health_for_tests(60, 10)
 	_game.force_hand_for_tests(["life_steal", "ash_blade", "bone_guard"])
 	_view.call("_on_card_pressed", cards[0])
-	await create_timer(1.0).timeout
+	await create_timer(1.3).timeout
 	_check(_view.get("_hero_heal_label").text == "+2", "Lebensraub wird als sichtbare Heilung dargestellt")
 
 	_game.start_game(22)
+	_game.force_boss_intent_for_tests("skull_storm")
 	_game.set_ability_rank_for_tests("bone_guard", 2)
 	_game.set_counters_for_tests(0, 1)
 	_game.force_hand_for_tests(["ash_blade", "life_steal", "rune_bolt"])
 	_view.call("_on_card_pressed", cards[0])
-	await create_timer(2.6).timeout
+	await _view.combat_sequence_finished
 	_check(String(_view.get("_block_label").text).contains("SCHUTZ"), "Knochenschutz wird beim Bossangriff sichtbar dargestellt")
 
 	_game.start_game(23)
+	_game.force_boss_intent_for_tests("skull_storm")
 	_game.set_health_for_tests(5, 20)
 	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	_view.call("_on_card_pressed", cards[0])
-	await create_timer(1.8).timeout
+	await create_timer(3.3).timeout
 	_check(_game.phase == "victory" and _view.get("_end_panel").visible, "Sieg erscheint nach dem sichtbaren Heldenangriff")
 	_check(boss_animator.current_animation() == "death" and not boss_animator.is_animation_playing(), "Sieg spielt Morvaths Todessequenz vollständig bis zum letzten Frame")
 
 	_game.start_game(24)
+	_game.force_boss_intent_for_tests("skull_storm")
 	_game.set_health_for_tests(60, 2)
 	_game.force_hand_for_tests(["ash_blade", "rune_bolt", "blood_frenzy"])
 	_view.call("_on_card_pressed", cards[0])
-	await create_timer(2.8).timeout
+	await create_timer(5.0).timeout
 	_check(_game.phase == "defeat" and _view.get("_end_panel").visible, "Niederlage erscheint nach Morvaths sichtbarem Gegenangriff")
 
 	_view.free()

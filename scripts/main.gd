@@ -38,6 +38,7 @@ func _ready() -> void:
 	_battle.menu_requested.connect(_return_to_menu)
 	_battle.connection_menu_requested.connect(_show_connection_overlay)
 	_battle.combat_audio.connect(_on_combat_audio)
+	_battle.combat_sequence_finished.connect(_game.confirm_visual_resolution)
 
 	_connection_overlay = ConnectionLobby.new()
 	_connection_overlay.visible = false

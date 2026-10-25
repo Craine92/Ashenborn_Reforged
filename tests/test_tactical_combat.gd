@@ -25,14 +25,14 @@ func _test_intents() -> void:
 	var game := _game(401, ["player_1", "player_2"])
 	game.force_boss_intent_for_tests("skull_storm")
 	_resolve_two(game)
-	_check(game.players["player_1"]["hp"] == 18 and game.players["player_2"]["hp"] == 18, "Schädelsturm trifft alle Lebenden genau einmal für 2")
+	_check(game.players["player_1"]["hp"] == 14 and game.players["player_2"]["hp"] == 14, "Schädelsturm trifft alle Lebenden genau einmal für 2")
 	_check(game.combat_result["boss_intent"]["animation"] == "skull_swarm", "Schädelsturm fordert die richtige Animation an")
 	game.free()
 
 	game = _game(402, ["player_1", "player_2"])
 	game.force_boss_intent_for_tests("soul_lance", "player_2")
 	_resolve_two(game)
-	_check(game.players["player_1"]["hp"] == 20 and game.players["player_2"]["hp"] == 16, "Seelenlanze trifft nur das vorher angekündigte Ziel für 4")
+	_check(game.players["player_1"]["hp"] == 16 and game.players["player_2"]["hp"] == 12, "Seelenlanze trifft nur das vorher angekündigte Ziel für 4")
 	_check(game.combat_result["boss_targets"].size() == 1, "Seelenlanze erzeugt kein überraschendes Zusatzziel")
 	game.free()
 
@@ -51,7 +51,7 @@ func _test_intents() -> void:
 	game.force_hand_for_tests(["life_steal", "bone_guard", "blood_frenzy"], "player_1")
 	game.set_player_connected("player_2", false)
 	game.select_upgrade("player_1", 0)
-	_check(game.combat_result["boss_intent"] == announced and game.players["player_2"]["hp"] == 16, "Verbindungsabbruch ändert weder angekündigte Aktion noch lebendes Ziel")
+	_check(game.combat_result["boss_intent"] == announced and game.players["player_2"]["hp"] == 12, "Verbindungsabbruch ändert weder angekündigte Aktion noch lebendes Ziel")
 	game.free()
 
 	game = _game(403, ["player_1", "player_2"])
@@ -59,7 +59,7 @@ func _test_intents() -> void:
 	game.force_boss_intent_for_tests("dark_ritual")
 	_resolve_two(game)
 	_check(game.boss_hp == 95, "Dunkles Ritual heilt nach 8 Heldenschaden exakt 3 LP")
-	_check(game.players["player_1"]["hp"] == 19 and game.players["player_2"]["hp"] == 19, "Dunkles Ritual trifft alle Lebenden für 1")
+	_check(game.players["player_1"]["hp"] == 15 and game.players["player_2"]["hp"] == 15, "Dunkles Ritual trifft alle Lebenden für 1")
 	_check(game.combat_result["boss_healing"] == 3, "Ritualheilung wird autoritativ dokumentiert")
 	game.free()
 

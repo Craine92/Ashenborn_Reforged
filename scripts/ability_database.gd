@@ -23,8 +23,8 @@ const ABILITIES := [
 		"weight": 100,
 		"max_rank": MAX_RANK,
 		"artwork": "res://assets/cards/monsters/grabgeborene/Seuchenuntoter.png",
-		"descriptions": ["Heilt nach Angriff 1 LP.", "Heilt nach Angriff 2 LP.", "Heilt nach Angriff 3 LP."],
-		"effects": {"healing": [1, 2, 3]},
+		"descriptions": ["Heilt nach Angriff 1 LP.", "Heilt nach Angriff weiterhin 1 LP.", "Heilt nach Angriff 2 LP."],
+		"effects": {"healing": [1, 1, 2]},
 	},
 	{
 		"id": "bone_guard",
@@ -45,8 +45,8 @@ const ABILITIES := [
 		"weight": 65,
 		"max_rank": MAX_RANK,
 		"artwork": "res://assets/cards/monsters/steinerne/kreatur_01/Reliktwerker.png",
-		"descriptions": ["Alle 3 Runden +2 Schaden.", "Alle 3 Runden +4 Schaden.", "Alle 3 Runden +6 Schaden."],
-		"effects": {"periodic_damage": [2, 4, 6], "interval": 3},
+		"descriptions": ["Alle 3 Runden +2 Schaden.", "Alle 3 Runden +3 Schaden.", "Alle 3 Runden +4 Schaden."],
+		"effects": {"periodic_damage": [2, 3, 4], "interval": 3},
 	},
 	{
 		"id": "blood_frenzy",
@@ -109,6 +109,8 @@ static func effect_value(ability_id: String, effect_name: String, rank: int) -> 
 static func make_offer(ability: Dictionary, current_rank: int) -> Dictionary:
 	var next_rank := clampi(current_rank + 1, 1, int(ability["max_rank"]))
 	return {
+		"card_kind": "upgrade",
+		"kind_label": "DAUERHAFTES UPGRADE",
 		"id": ability["id"],
 		"name": ability["name"],
 		"type": ability["type"],

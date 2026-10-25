@@ -45,10 +45,13 @@ func _test_http_public_surface() -> void:
 		_check(response[1] == 200 and body.contains("localStorage") and body.contains("type:'hello'"), "Controller unterstützt sitzungsgebundene Identität und Wiederverbindung")
 		_check(body.contains("BEREIT – WARTE AUF MITSPIELER") and not body.contains("fetch('/api/select"), "Controller wartet nach einem Tap ohne unsicheren HTTP-Fallback")
 		_check(body.contains("object-fit:contain") and body.contains("aspect-ratio:2/3"), "Mobile Karten bleiben proportional")
+		_check(body.contains("max-width:440px") and body.contains("flex:1 1 0") and body.contains("width:0"), "Drei Karten bleiben auch auf schmalen Smartphones vollständig im Viewport")
 		_check(body.contains("MEIN BUILD") and body.contains("effect_text") and body.contains("trigger_text") and body.contains("AKTIVE SYNERGIEN"), "Controller besitzt ein aufklappbares Build- und Synergie-Menü")
 		_check(body.contains("id=\"intent\"") and body.contains("DU BIST DAS ZIEL") and body.contains("boss_intent"), "Controller zeigt den festen Boss-Intent samt persönlicher Zielmarkierung")
 		_check(body.contains("FREIGESCHALTET") and body.contains("new_synergies"), "Controller meldet neue Synergien eindeutig")
 		_check(body.contains("id=\"identity\"") and body.contains("triggered_effects"), "Controller zeigt große Identität und tatsächlich ausgelöste Fähigkeiten")
+		_check(body.contains("DAUERHAFTES UPGRADE") and body.contains("card_kind") and body.contains("kind_label") and body.contains("risk_text"), "Controller unterscheidet permanente Upgrades und temporäre Taktiken samt Risiko")
+		_check(body.contains("id=\"bossPhase\"") and body.contains("boss_phase"), "Controller zeigt die aktuelle Bossphase")
 	error = request.request("http://127.0.0.1:18765/api/state")
 	if error == OK:
 		var state_response: Array = await request.request_completed
@@ -65,6 +68,11 @@ func _test_http_public_surface() -> void:
 		var decoded := Image.new()
 		_check(image_response[1] == 200 and decoded.load_jpg_from_buffer(image_bytes) == OK, "Upgrade-Artwork wird ausgeliefert")
 		_check(decoded.get_width() * 3 == decoded.get_height() * 2, "Server bewahrt das 2:3-Seitenverhältnis")
+	error = request.request("http://127.0.0.1:18765/asset/defensive_stance")
+	if error == OK:
+		var tactic_response: Array = await request.request_completed
+		var tactic_image := Image.new()
+		_check(tactic_response[1] == 200 and tactic_image.load_jpg_from_buffer(tactic_response[3]) == OK, "Wiederverwendetes Taktik-Artwork wird ausgeliefert")
 	request.queue_free()
 
 
@@ -98,7 +106,7 @@ func _test_two_authenticated_clients() -> void:
 	socket_two.send_text(JSON.stringify({"type": "select", "index": 0}))
 	await _wait_for_phase("resolving")
 	_check(_game.boss_hp == 111 and _game.combat_result["attacks"].size() == 2, "Zweite Auswahl startet genau zwei autoritative Heldenangriffe")
-	_check(_game.combat_result["boss_attack_count"] == 1 and _game.players["player_1"]["hp"] == 18 and _game.players["player_2"]["hp"] == 18, "Morvath führt genau einen gemeinsamen Gegenangriff aus")
+	_check(_game.combat_result["boss_attack_count"] == 1 and _game.players["player_1"]["hp"] == 14 and _game.players["player_2"]["hp"] == 14, "Morvath führt genau einen gemeinsamen Gegenangriff aus")
 
 	var spectator := await _connect_client("")
 	var spectator_welcome := await _wait_for_message(spectator, "welcome")
@@ -116,7 +124,7 @@ func _test_two_authenticated_clients() -> void:
 	var reconnect_welcome := await _wait_for_message(reconnect, "welcome")
 	var reconnect_state := await _wait_for_state(reconnect)
 	_check(reconnect_welcome.get("player_id", "") == "player_2" and reconnect_state.get("player_id", "") == "player_2", "Token stellt dieselbe Spieleridentität wieder her")
-	_check(reconnect_state.get("player", {}).get("hero", {}).get("abilities", []).size() == 1 and reconnect_state.get("player_hp", 0) == 18, "Wiederverbindung stellt Build und Lebenspunkte wieder her")
+	_check(reconnect_state.get("player", {}).get("hero", {}).get("abilities", []).size() == 1 and reconnect_state.get("player_hp", 0) == 14, "Wiederverbindung stellt Build und Lebenspunkte wieder her")
 	_check(reconnect_state.get("player", {}).get("color", "") == "a868e8", "Wiederverbindung bewahrt Spieler-2-Farbe und Nummer")
 	socket_one.close()
 	reconnect.close()

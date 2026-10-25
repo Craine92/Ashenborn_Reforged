@@ -21,18 +21,17 @@ func _init() -> void:
 func set_card(index: int, card: Dictionary, enabled: bool) -> void:
 	card_index = index
 	_name_label.text = card.get("name", "Unbekannt")
-	_description_label.text = card.get("description", "")
-	_rarity_label.text = card.get("rarity_label", "")
-	_rank_label.text = card.get("rank_label", "RANG 1")
-	var full_ability := AbilityDatabase.get_ability(card.get("id", ""))
-	if not full_ability.is_empty():
-		_art.texture = load(full_ability["artwork"])
+	_description_label.text = String(card.get("description", "")) + ("\n" + String(card.get("risk_text", "")) if not String(card.get("risk_text", "")).is_empty() else "")
+	_rarity_label.text = card.get("kind_label", "DAUERHAFTES UPGRADE")
+	_rank_label.text = card.get("rarity_label", "TAKTIK") if card.get("card_kind", "upgrade") == "tactic" else card.get("rank_label", "RANG 1")
+	if not String(card.get("artwork", "")).is_empty():
+		_art.texture = load(card["artwork"])
 	var rarity: String = card.get("rarity", "common")
 	_rarity_color = AbilityDatabase.RARITY_COLORS.get(rarity, UIStyle.CYAN)
 	_rarity_label.add_theme_color_override("font_color", _rarity_color)
 	disabled = not enabled
 	_apply_styles()
-	tooltip_text = "%s – %s – %s" % [card.get("name", ""), card.get("rank_label", ""), card.get("description", "")]
+	tooltip_text = "%s – %s – %s %s" % [card.get("name", ""), card.get("kind_label", ""), card.get("description", ""), card.get("risk_text", "")]
 
 
 func set_selected(selected: bool) -> void:

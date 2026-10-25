@@ -42,7 +42,7 @@ func _test_ability_data_and_offers() -> void:
 	_check(ids.size() == 6, "Alle Fähigkeits-IDs sind eindeutig")
 
 	var game := _new_game(10)
-	_check(game.hero["name"] == "Aschenritter" and game.player_hp == 20, "Partie startet mit dem Aschenritter")
+	_check(game.hero["name"] == "Aschenritter" and game.player_hp == 16, "Partie startet mit dem Aschenritter und dem balancierten Lebenswert")
 	_check(game.hand.size() == 3 and _unique_offer_count(game.hand) == 3, "Drei unterschiedliche Upgrade-Karten erscheinen")
 	_check(game.get_public_snapshot(false)["hand"].is_empty(), "Öffentlicher TV-Zustand enthält keine private Hand")
 	_check(game.get_snapshot()["hand"].size() == 3, "Privater Controller-Zustand enthält die drei Angebote")
@@ -89,15 +89,15 @@ func _test_authoritative_effects() -> void:
 	game.set_ability_rank_for_tests("rune_bolt", 2)
 	game.set_ability_rank_for_tests("blood_frenzy", 3)
 	game.set_ability_rank_for_tests("soul_fire", 2)
-	game.set_health_for_tests(60, 9)
+	game.set_health_for_tests(60, 7)
 	game.set_round_for_tests(3)
 	game.set_counters_for_tests(2, 0)
 	game.force_hand_for_tests(["bone_guard", "life_steal", "ash_blade"])
 	game.select_upgrade(0)
-	_check(game.combat_result["hero_damage"] == 24, "Basisangriff, Fähigkeiten und Runenklinge addieren sich exakt")
-	_check(game.boss_hp == 36, "Zusatz- und Synergieschaden werden jeweils genau einmal auf Morvath angewendet")
+	_check(game.combat_result["hero_damage"] == 23, "Basisangriff, Fähigkeiten und Runenklinge addieren sich exakt")
+	_check(game.boss_hp == 37, "Zusatz- und Synergieschaden werden jeweils genau einmal auf Morvath angewendet")
 	var triggers: Array = game.combat_result["triggered_effects"]
-	_check(triggers.has("BLUTRAUSCH +5 SCHADEN") and triggers.has("RUNENBLITZ +4 SCHADEN") and triggers.has("RUNENKLINGE +2 SCHADEN") and triggers.has("SEELENFEUER +7 SCHADEN"), "Ausgelöste Fähigkeiten und Synergien werden aus dem bestätigten Kampfergebnis gemeldet")
+	_check(triggers.has("BLUTRAUSCH +5 SCHADEN") and triggers.has("RUNENBLITZ +3 SCHADEN") and triggers.has("RUNENKLINGE +2 SCHADEN") and triggers.has("SEELENFEUER +7 SCHADEN"), "Ausgelöste Fähigkeiten und Synergien werden aus dem bestätigten Kampfergebnis gemeldet")
 	game.free()
 
 
@@ -106,15 +106,15 @@ func _test_authoritative_effects() -> void:
 	game.set_health_for_tests(60, 10)
 	game.force_hand_for_tests(["life_steal", "ash_blade", "bone_guard"])
 	game.select_upgrade(0)
-	_check(game.combat_result["healing"] == 2 and game.player_hp == 10, "Lebensraub Rang 2 heilt vor dem Gegenschlag exakt 2 LP")
+	_check(game.combat_result["healing"] == 1 and game.player_hp == 9, "Lebensraub Rang 2 heilt vor dem Gegenschlag exakt 1 LP")
 	game.free()
 
 	game = _new_game(311)
 	game.set_ability_rank_for_tests("life_steal", 2)
-	game.set_health_for_tests(60, 19)
+	game.set_health_for_tests(60, 15)
 	game.force_hand_for_tests(["ash_blade", "bone_guard", "rune_bolt"])
 	game.select_upgrade(0)
-	_check(game.combat_result["healing"] == 1 and game.combat_result["hero_hp_after_heal"] == 20, "Lebensraub wird exakt am maximalen Leben gedeckelt")
+	_check(game.combat_result["healing"] == 1 and game.combat_result["hero_hp_after_heal"] == 16, "Lebensraub wird exakt am maximalen Leben gedeckelt")
 	game.free()
 
 	game = _new_game(32)
@@ -142,7 +142,7 @@ func _test_authoritative_build_tracking() -> void:
 	game.set_ability_rank_for_tests("soul_fire", 1)
 	game.set_round_for_tests(4)
 	game.set_counters_for_tests(4, 0)
-	game.set_health_for_tests(60, 9)
+	game.set_health_for_tests(60, 7)
 	var abilities: Array = game.get_private_snapshot("player_1")["player"]["hero"]["abilities"]
 	var by_id := {}
 	for ability: Dictionary in abilities:
@@ -164,7 +164,7 @@ func _test_round_double_tap_victory_and_defeat() -> void:
 	game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	_check(game.select_upgrade(0, "web"), "Ein Smartphone-Tipp wird angenommen")
 	_check(not game.select_upgrade(0, "web"), "Ein schneller zweiter Tipp wird abgewiesen")
-	_check(game.ability_ranks["ash_blade"] == 1 and game.boss_hp == 55 and game.player_hp == 18, "Doppeltipp erzeugt weder zweite Aufwertung noch zweiten Angriff")
+	_check(game.ability_ranks["ash_blade"] == 1 and game.boss_hp == 55 and game.player_hp == 14, "Doppeltipp erzeugt weder zweite Aufwertung noch zweiten Angriff")
 	game.finish_resolution_for_tests()
 	_check(game.round_number == 2 and game.hand.size() == 3, "Nächste Runde startet automatisch mit drei Upgrades")
 	game.free()
@@ -173,7 +173,7 @@ func _test_round_double_tap_victory_and_defeat() -> void:
 	game.set_health_for_tests(4, 20)
 	game.force_hand_for_tests(["life_steal", "bone_guard", "rune_bolt"])
 	game.select_upgrade(1)
-	_check(game.phase == "victory" and game.boss_hp == 0 and game.player_hp == 20, "Tödlicher Heldenangriff gewinnt ohne Boss-Gegenschlag")
+	_check(game.phase == "victory" and game.boss_hp == 0 and game.player_hp == 16, "Tödlicher Heldenangriff gewinnt ohne Boss-Gegenschlag")
 	game.free()
 
 	game = _new_game(42)

@@ -58,7 +58,7 @@ func _run() -> void:
 	var feedback_events: Array = []
 	battle.combat_sequence_started.connect(func(card_name: String, boss_damage: int, player_damage: int) -> void: feedback_events.append([card_name, boss_damage, player_damage]))
 	battle.call("_on_card_pressed", cards[0])
-	_check(game.boss_hp == 55 and game.player_hp == 18 and game.ability_ranks["ash_blade"] == 1, "Ein PC-Klick wertet auf und startet den autoritativen Heldenangriff")
+	_check(game.boss_hp == 55 and game.player_hp == 14 and game.ability_ranks["ash_blade"] == 1, "Ein PC-Klick wertet auf und startet den autoritativen Heldenangriff")
 	_check(feedback_events.size() == 1 and feedback_events[0] == ["Aschenklinge", 5, 2], "TV-Feedback übernimmt exakt die bestätigten Schadenswerte")
 	if server:
 		server.stop()

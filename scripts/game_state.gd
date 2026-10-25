@@ -3,6 +3,7 @@ extends Node
 
 const BossIntentDatabase = preload("res://scripts/boss_intent_database.gd")
 const SynergyDatabase = preload("res://scripts/synergy_database.gd")
+const TacticDatabase = preload("res://scripts/tactic_database.gd")
 
 signal state_changed(snapshot: Dictionary)
 signal audio_cue(cue: String)
@@ -21,13 +22,15 @@ var players: Dictionary = {}
 var active_player_ids: Array[String] = []
 var boss_hp := SOLO_BOSS_HP
 var boss_max_hp := SOLO_BOSS_HP
+var boss_phase := 1
 var player_hp := int(HeroDatabase.ASH_KNIGHT["max_hp"])
 var round_number := 1
-var hand: Array[Dictionary] = []
+var hand: Array = []
 var selected_upgrade: Dictionary = {}
 var ability_ranks: Dictionary = {}
 var combat_result: Dictionary = {}
 var boss_intent: Dictionary = {}
+var boss_phase_transition: Dictionary = {}
 var result_text := "Wähle ein Upgrade."
 var phase := "menu"
 var resolution_delay := 12.0
@@ -61,6 +64,8 @@ func start_game(seed_value: int = -1, requested_player_ids: Array = []) -> void:
 		players[player_id] = _new_player(player_id, index)
 	boss_max_hp = SOLO_BOSS_HP * active_player_ids.size()
 	boss_hp = boss_max_hp
+	boss_phase = 1
+	boss_phase_transition = {}
 	round_number = 1
 	_intent_cycle_offset = _rng.randi_range(0, BossIntentDatabase.INTENTS.size() - 1)
 	_last_lance_target_index = -1
@@ -84,6 +89,8 @@ func return_to_menu() -> void:
 	ability_ranks.clear()
 	combat_result = {}
 	boss_intent = {}
+	boss_phase = 1
+	boss_phase_transition = {}
 	result_text = ""
 	_emit_state()
 
@@ -105,11 +112,14 @@ func select_upgrade(player_or_index: Variant, index_or_source: Variant = "pc", _
 	if index < 0 or index >= player_hand.size():
 		return false
 	var offer: Dictionary = player_hand[index]
-	var ability_id: String = offer["id"]
-	var ranks: Dictionary = player["ability_ranks"]
-	var previous_rank := int(ranks.get(ability_id, 0))
-	var definition := AbilityDatabase.get_ability(ability_id)
-	if definition.is_empty() or previous_rank >= int(definition["max_rank"]):
+	if offer.get("card_kind", "upgrade") == "upgrade":
+		var ability_id: String = offer["id"]
+		var ranks: Dictionary = player["ability_ranks"]
+		var previous_rank := int(ranks.get(ability_id, 0))
+		var definition := AbilityDatabase.get_ability(ability_id)
+		if definition.is_empty() or previous_rank >= int(definition["max_rank"]):
+			return false
+	elif TacticDatabase.get_tactic(String(offer.get("id", ""))).is_empty():
 		return false
 	player["pending_upgrade"] = offer.duplicate(true)
 	player["ready"] = true
@@ -190,6 +200,9 @@ func get_public_snapshot(include_private_hand: bool = false) -> Dictionary:
 	var snapshot := {
 		"boss_hp": boss_hp,
 		"boss_max_hp": boss_max_hp,
+		"boss_phase": boss_phase,
+		"boss_phase_info": BossIntentDatabase.get_phase(boss_phase),
+		"boss_phase_transition": boss_phase_transition.duplicate(true),
 		"round": round_number,
 		"players": public_players,
 		"active_player_count": active_player_ids.size(),
@@ -219,10 +232,14 @@ func force_hand_for_tests(ability_ids: Array[String], player_id: String = "") ->
 		return
 	var player: Dictionary = players[target_id]
 	var forced: Array[Dictionary] = []
-	for ability_id in ability_ids:
-		var ability := AbilityDatabase.get_ability(ability_id)
+	for card_id in ability_ids:
+		var ability := AbilityDatabase.get_ability(card_id)
 		if not ability.is_empty():
-			forced.append(AbilityDatabase.make_offer(ability, _rank(player, ability_id)))
+			forced.append(AbilityDatabase.make_offer(ability, _rank(player, card_id)))
+			continue
+		var tactic := TacticDatabase.get_tactic(card_id)
+		if not tactic.is_empty():
+			forced.append(TacticDatabase.make_offer(tactic))
 	player["hand"] = forced
 	player["pending_upgrade"] = {}
 	player["selected_upgrade"] = {}
@@ -266,8 +283,15 @@ func set_round_for_tests(value: int) -> void:
 	_determine_boss_intent()
 
 
+func set_boss_phase_for_tests(value: int) -> void:
+	boss_phase = clampi(value, 1, 2)
+	boss_phase_transition = {}
+	_determine_boss_intent()
+	_emit_state()
+
+
 func force_boss_intent_for_tests(intent_id: String, target_id: String = "") -> void:
-	var forced := BossIntentDatabase.get_intent(intent_id)
+	var forced := BossIntentDatabase.get_intent(intent_id, boss_phase)
 	if forced.is_empty():
 		return
 	if forced.get("target_mode", "all") == "single":
@@ -322,20 +346,28 @@ func _resolve_round() -> void:
 	if selected_players.is_empty():
 		return
 	phase = "resolving"
+	boss_phase_transition = {}
 	var attacks: Array[Dictionary] = []
 	var boss_targets: Array[Dictionary] = []
 	for player_id in selected_players:
 		var player: Dictionary = players[player_id]
 		var pending: Dictionary = player["pending_upgrade"]
-		var ability_id: String = pending["id"]
+		var card_id: String = pending["id"]
+		var card_kind := String(pending.get("card_kind", "upgrade"))
 		var ranks: Dictionary = player["ability_ranks"]
-		var previous_rank := int(ranks.get(ability_id, 0))
-		var acquired_rank := previous_rank + 1
-		ranks[ability_id] = acquired_rank
 		var acquired := pending.duplicate(true)
-		acquired["acquired_rank"] = acquired_rank
-		acquired["unlocked"] = previous_rank == 0
-		var new_synergies := _discover_new_synergies(player)
+		var new_synergies: Array[Dictionary] = []
+		if card_kind == "upgrade":
+			var previous_rank := int(ranks.get(card_id, 0))
+			var acquired_rank := previous_rank + 1
+			ranks[card_id] = acquired_rank
+			acquired["acquired_rank"] = acquired_rank
+			acquired["unlocked"] = previous_rank == 0
+			new_synergies = _discover_new_synergies(player)
+		else:
+			acquired["acquired_rank"] = 0
+			acquired["unlocked"] = false
+			acquired["temporary"] = true
 		player["selected_upgrade"] = acquired
 		player["pending_upgrade"] = {}
 		player["hero_attack_count"] = int(player["hero_attack_count"]) + 1
@@ -349,7 +381,8 @@ func _resolve_round() -> void:
 		var rune_damage := AbilityDatabase.effect_value("rune_bolt", "periodic_damage", _rank(player, "rune_bolt")) if round_number % 3 == 0 else 0
 		var soul_damage := AbilityDatabase.effect_value("soul_fire", "periodic_damage", _rank(player, "soul_fire")) if int(player["hero_attack_count"]) % 3 == 0 else 0
 		var synergy_damage := 2 if rune_damage > 0 and SynergyDatabase.is_active("rune_blade", ranks) else 0
-		var hero_damage := base_damage + attack_bonus + conditional_bonus + rune_damage + soul_damage + synergy_damage
+		var tactic_damage := 4 if card_id == "storm_strike" and card_kind == "tactic" else 0
+		var hero_damage := base_damage + attack_bonus + conditional_bonus + rune_damage + soul_damage + synergy_damage + tactic_damage
 		var boss_before := boss_hp
 		boss_hp = maxi(0, boss_hp - hero_damage)
 		var healing_power := AbilityDatabase.effect_value("life_steal", "healing", _rank(player, "life_steal"))
@@ -362,6 +395,12 @@ func _resolve_round() -> void:
 			triggered_effects.append("RUNENBLITZ +%d SCHADEN" % rune_damage)
 		if synergy_damage > 0:
 			triggered_effects.append("RUNENKLINGE +%d SCHADEN" % synergy_damage)
+		if tactic_damage > 0:
+			triggered_effects.append("STURMSTOSS +%d SCHADEN" % tactic_damage)
+		elif card_id == "defensive_stance" and card_kind == "tactic":
+			triggered_effects.append("ABWEHRHALTUNG BEREIT")
+		elif card_id == "ritual_breaker" and card_kind == "tactic":
+			triggered_effects.append("RITUALBRECHER BEREIT")
 		if soul_damage > 0:
 			triggered_effects.append("SEELENFEUER +%d SCHADEN" % soul_damage)
 		if healing > 0:
@@ -370,6 +409,9 @@ func _resolve_round() -> void:
 			"player_id": player_id,
 			"display_name": player["display_name"],
 			"selected_upgrade": acquired.duplicate(true),
+			"selected_card": acquired.duplicate(true),
+			"card_kind": card_kind,
+			"tactic_id": card_id if card_kind == "tactic" else "",
 			"hero_damage": hero_damage,
 			"base_damage": base_damage,
 			"attack_bonus": attack_bonus,
@@ -377,6 +419,7 @@ func _resolve_round() -> void:
 			"rune_damage": rune_damage,
 			"soul_damage": soul_damage,
 			"synergy_damage": synergy_damage,
+			"tactic_damage": tactic_damage,
 			"healing": healing,
 			"new_synergies": new_synergies,
 			"hero_hp_before": hp_before,
@@ -390,8 +433,14 @@ func _resolve_round() -> void:
 
 	var boss_healing := 0
 	var boss_hp_before_heal := boss_hp
+	var ritual_interrupted := false
+	if boss_intent.get("id", "") == "dark_ritual":
+		for attack: Dictionary in attacks:
+			if attack.get("tactic_id", "") == "ritual_breaker":
+				ritual_interrupted = true
+				break
 	if boss_hp > 0:
-		boss_healing = mini(int(boss_intent.get("healing", 0)), boss_max_hp - boss_hp)
+		boss_healing = 0 if ritual_interrupted else mini(int(boss_intent.get("healing", 0)), boss_max_hp - boss_hp)
 		boss_hp += boss_healing
 		var target_ids: Array[String] = []
 		if boss_intent.get("target_mode", "all") == "single":
@@ -406,11 +455,17 @@ func _resolve_round() -> void:
 			var player: Dictionary = players[player_id]
 			player["boss_attack_count"] = int(player["boss_attack_count"]) + 1
 			var hp_before_hit := int(player["hp"])
-			var blocked := _bone_guard_reduction(player, int(player["boss_attack_count"]))
-			var incoming_damage := maxi(0, int(boss_intent.get("damage", 0)) - blocked)
+			var tactic_id := _tactic_for_player(attacks, player_id)
+			var risk_damage := 2 if tactic_id == "storm_strike" else 0
+			var total_damage := int(boss_intent.get("damage", 0)) + risk_damage
+			var stance_blocked := mini(3, total_damage) if tactic_id == "defensive_stance" else 0
+			var remaining_damage := maxi(0, total_damage - stance_blocked)
+			var bone_blocked := mini(_bone_guard_reduction(player, int(player["boss_attack_count"])), remaining_damage)
+			var blocked := stance_blocked + bone_blocked
+			var incoming_damage := maxi(0, total_damage - blocked)
 			var hp_after_damage := maxi(0, hp_before_hit - incoming_damage)
 			var synergy_healing := 0
-			if blocked > 0 and hp_after_damage > 0 and SynergyDatabase.is_active("blood_shield", player["ability_ranks"]):
+			if bone_blocked > 0 and hp_after_damage > 0 and SynergyDatabase.is_active("blood_shield", player["ability_ranks"]):
 				synergy_healing = mini(1, int(player["hero"]["max_hp"]) - hp_after_damage)
 			player["hp"] = hp_after_damage + synergy_healing
 			player["alive"] = int(player["hp"]) > 0
@@ -421,9 +476,14 @@ func _resolve_round() -> void:
 				"hp_after_damage": hp_after_damage,
 				"hp_after": int(player["hp"]),
 				"base_damage": int(boss_intent.get("damage", 0)),
+				"risk_damage": risk_damage,
+				"total_damage": total_damage,
 				"boss_damage": incoming_damage,
 				"blocked": blocked,
+				"stance_blocked": stance_blocked,
+				"bone_blocked": bone_blocked,
 				"synergy_healing": synergy_healing,
+				"tactic_id": tactic_id,
 				"boss_attack_count": int(player["boss_attack_count"]),
 			})
 
@@ -432,7 +492,9 @@ func _resolve_round() -> void:
 		"boss_targets": boss_targets,
 		"boss_attack_count": 1 if boss_hp > 0 else 0,
 		"boss_intent": boss_intent.duplicate(true),
+		"boss_phase": boss_phase,
 		"boss_healing": boss_healing,
+		"ritual_interrupted": ritual_interrupted,
 		"boss_hp_before_heal": boss_hp_before_heal,
 		"boss_hp_after_heal": boss_hp,
 	}
@@ -472,6 +534,15 @@ func _finish_round(sequence: int) -> void:
 	if sequence != _game_sequence or phase != "resolving":
 		return
 	round_number += 1
+	if boss_phase == 1 and boss_hp * 2 <= boss_max_hp:
+		boss_phase = 2
+		boss_phase_transition = {
+			"from": 1,
+			"to": 2,
+			"message": "MORVATH ERWACHT – PHASE 2",
+		}
+	else:
+		boss_phase_transition = {}
 	_determine_boss_intent()
 	combat_result = {}
 	for player_id in active_player_ids:
@@ -491,9 +562,22 @@ func _draw_new_hands() -> void:
 	for player_id in active_player_ids:
 		var player: Dictionary = players[player_id]
 		if player.get("alive", false):
-			player["hand"] = AbilityDatabase.draw_hand(_rng, player["ability_ranks"], round_number, HAND_SIZE)
+			player["hand"] = _draw_hand_for_player(player_id, player)
 		else:
 			player["hand"] = []
+
+
+func _draw_hand_for_player(player_id: String, player: Dictionary) -> Array[Dictionary]:
+	var tactic_offer: Dictionary = {}
+	if round_number >= 3 and _rng.randf() < TacticDatabase.OFFER_CHANCE:
+		var eligible := TacticDatabase.eligible_tactics(boss_intent, player_id)
+		if not eligible.is_empty():
+			tactic_offer = TacticDatabase.make_offer(eligible[_rng.randi_range(0, eligible.size() - 1)])
+	var upgrade_count := HAND_SIZE - (0 if tactic_offer.is_empty() else 1)
+	var offers := AbilityDatabase.draw_hand(_rng, player["ability_ranks"], round_number, upgrade_count)
+	if not tactic_offer.is_empty():
+		offers.insert(_rng.randi_range(0, offers.size()), tactic_offer)
+	return offers
 
 
 func _serialize_player(player: Dictionary, include_hand: bool) -> Dictionary:
@@ -536,6 +620,8 @@ func _private_combat(player_id: String) -> Dictionary:
 		"boss_attack_count": combat_result.get("boss_attack_count", 0),
 		"boss_intent": combat_result.get("boss_intent", {}).duplicate(true),
 		"boss_healing": combat_result.get("boss_healing", 0),
+		"ritual_interrupted": combat_result.get("ritual_interrupted", false),
+		"boss_phase": combat_result.get("boss_phase", boss_phase),
 		"boss_hp_before_heal": combat_result.get("boss_hp_before_heal", 0),
 		"boss_hp_after_heal": combat_result.get("boss_hp_after_heal", 0),
 	}
@@ -563,7 +649,7 @@ func _determine_boss_intent() -> void:
 		boss_intent = {}
 		return
 	var intent_id := intent_ids[(round_number - 1 + _intent_cycle_offset) % intent_ids.size()]
-	var intent := BossIntentDatabase.get_intent(intent_id)
+	var intent := BossIntentDatabase.get_intent(intent_id, boss_phase)
 	if intent.get("target_mode", "all") == "single":
 		_apply_intent_target(intent, _next_lance_target())
 	intent["round"] = round_number
@@ -601,6 +687,13 @@ func _discover_new_synergies(player: Dictionary) -> Array[Dictionary]:
 		known[synergy_id] = true
 		discoveries.append(synergy.duplicate(true))
 	return discoveries
+
+
+func _tactic_for_player(attacks: Array[Dictionary], player_id: String) -> String:
+	for attack: Dictionary in attacks:
+		if attack.get("player_id", "") == player_id:
+			return String(attack.get("tactic_id", ""))
+	return ""
 
 
 func _all_reachable_players_ready() -> bool:

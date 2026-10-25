@@ -64,7 +64,7 @@ func _build_home() -> Control:
 	column.add_child(logo)
 
 	var subtitle := Label.new()
-	subtitle.text = "ALPHA 0.3A  ·  TACTICAL COMBAT & BUILD SYNERGIES"
+	subtitle.text = "ALPHA 0.3B  ·  BOSSPHASEN & TAKTIKKARTEN"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 18)
 	subtitle.add_theme_color_override("font_color", UIStyle.CYAN)

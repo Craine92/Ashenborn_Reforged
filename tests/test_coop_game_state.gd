@@ -37,7 +37,7 @@ func _test_waits_for_both_and_resolves_once() -> void:
 	_check(game.select_upgrade("player_2", 0, "web"), "Spieler 2 kann unabhängig wählen")
 	_check(game.phase == "resolving" and game.boss_hp == 111, "Beide Helden greifen nach 2/2 Bereitschaft genau einmal an")
 	_check(game.combat_result["attacks"].size() == 2 and game.combat_result["boss_attack_count"] == 1, "Zwei Heldenangriffe führen zu genau einem gemeinsamen Bossangriff")
-	_check(game.players["player_1"]["hp"] == 18 and game.players["player_2"]["hp"] == 18, "Morvath trifft beide lebenden Helden einmal")
+	_check(game.players["player_1"]["hp"] == 14 and game.players["player_2"]["hp"] == 14, "Morvath trifft beide lebenden Helden einmal")
 	_check(game.players["player_1"]["ability_ranks"].get("ash_blade", 0) == 1 and game.players["player_2"]["ability_ranks"].get("rune_bolt", 0) == 1, "Jeder Held erhält exakt sein eigenes Upgrade")
 	var player_two_combat: Dictionary = game.get_private_snapshot("player_2")["combat"]
 	_check(player_two_combat["attacks"].size() == 1 and player_two_combat["attacks"][0]["player_id"] == "player_2", "Privater Kampfstatus enthält nur den eigenen Build-Auslöser")
@@ -57,7 +57,7 @@ func _test_personal_healing_and_defense() -> void:
 	game.select_upgrade("player_1", 0)
 	game.select_upgrade("player_2", 0)
 	var targets: Array = game.combat_result["boss_targets"]
-	_check(game.players["player_1"]["hp"] == 10 and game.combat_result["attacks"][0]["healing"] == 2, "Lebensraub heilt nur Spieler 1 und wird danach korrekt verrechnet")
+	_check(game.players["player_1"]["hp"] == 9 and game.combat_result["attacks"][0]["healing"] == 1, "Lebensraub heilt nur Spieler 1 und wird danach korrekt verrechnet")
 	_check(game.players["player_2"]["hp"] == 10 and targets[1]["blocked"] == 2 and targets[1]["boss_damage"] == 0, "Persönlicher Knochenschutz blockt nur für Spieler 2")
 	_check(game.players["player_1"]["ability_ranks"] != game.players["player_2"]["ability_ranks"], "Unterschiedliche Builds bleiben getrennt")
 	game.free()
@@ -71,11 +71,11 @@ func _test_disconnect_policy_and_reconnect_state() -> void:
 	game.set_player_connected("player_2", false)
 	_check(game.phase == "resolving" and game.combat_result["attacks"].size() == 1, "Abbruch eines noch nicht bereiten Spielers blockiert die Runde nicht und wählt nichts für ihn")
 	_check(game.players["player_2"]["ability_ranks"].is_empty(), "Für getrennten Spieler wird kein Upgrade erfunden")
-	_check(game.players["player_2"]["hp"] == 18, "Gemeinsamer Bossangriff trifft den weiterhin aktiven getrennten Helden")
+	_check(game.players["player_2"]["hp"] == 14, "Gemeinsamer Bossangriff trifft den weiterhin aktiven getrennten Helden")
 	game.finish_resolution_for_tests()
 	var hand_before: Array = game.players["player_2"]["hand"].duplicate(true)
 	game.set_player_connected("player_2", true)
-	_check(game.players["player_2"]["connected"] and game.players["player_2"]["hp"] == 18, "Wiederverbundener Spieler erhält Identität und Lebenspunkte zurück")
+	_check(game.players["player_2"]["connected"] and game.players["player_2"]["hp"] == 14, "Wiederverbundener Spieler erhält Identität und Lebenspunkte zurück")
 	_check(game.players["player_2"]["hand"] == hand_before, "Wiederverbindung bewahrt die private Hand")
 	game.free()
 

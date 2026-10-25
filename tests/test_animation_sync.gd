@@ -27,7 +27,7 @@ func _run() -> void:
 	var authoritative_boss_hp := game.boss_hp
 	var authoritative_one_hp := int(game.players["player_1"]["hp"])
 	var authoritative_two_hp := int(game.players["player_2"]["hp"])
-	_check(authoritative_boss_hp == 111 and authoritative_one_hp == 16 and authoritative_two_hp == 20, "Autoritativer Koop-Schaden und angekündigtes Einzelziel werden vor der Darstellung exakt einmal berechnet")
+	_check(authoritative_boss_hp == 111 and authoritative_one_hp == 12 and authoritative_two_hp == 16, "Autoritativer Koop-Schaden und angekündigtes Einzelziel werden vor der Darstellung exakt einmal berechnet")
 	await create_timer(3.8).timeout
 	_check(game.phase == "resolving" and game.round_number == 1, "Runde bleibt bis nach der vollständigen Kampfanimation unverändert")
 	_check(game.boss_hp == authoritative_boss_hp and int(game.players["player_1"]["hp"]) == authoritative_one_hp and int(game.players["player_2"]["hp"]) == authoritative_two_hp, "Frame-Animationen verändern keinerlei Kampfwerte")

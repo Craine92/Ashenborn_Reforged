@@ -4,7 +4,7 @@ extends RefCounted
 const ASH_KNIGHT := {
 	"id": "ash_knight",
 	"name": "Aschenritter",
-	"max_hp": 20,
+	"max_hp": 16,
 	"base_attack": 4,
 	"artwork": "res://assets/cards/monsters/sonnengeweihte/kreatur_04/Ordensritter.png",
 }

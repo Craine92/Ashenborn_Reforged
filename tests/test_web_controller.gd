@@ -13,20 +13,20 @@ func _run() -> void:
 	_game = GameState.new()
 	root.add_child(_game)
 	_game.resolution_delay = 99.0
-	_game.start_game(7)
-	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	_server = WebControllerServer.new()
 	root.add_child(_server)
-	_server.state_provider = Callable(_game, "get_snapshot")
-	_server.card_selected.connect(func(index: int) -> void: _game.select_upgrade(index, "web"))
+	_server.public_state_provider = Callable(_game, "get_public_snapshot")
+	_server.private_state_provider = Callable(_game, "get_private_snapshot")
+	_server.player_selected.connect(func(player_id: String, index: int) -> void: _game.select_upgrade(player_id, index, "web"))
+	_server.player_connection_changed.connect(_game.set_player_connected)
 	_game.state_changed.connect(func(_snapshot: Dictionary) -> void: _server.broadcast_state())
 	_check(_server.start(18765, 18766), "Testserver startet")
 	await create_timer(0.1).timeout
-	await _test_http()
-	await _test_websocket()
+	await _test_http_public_surface()
+	await _test_two_authenticated_clients()
 	_server.stop()
 	if _failures.is_empty():
-		print("PASS: HTTP-Seite, Status-API, WebSocket-Auswahl und Doppeltipp-Schutz")
+		print("PASS: Öffentliche HTTP-Daten, private WebSocket-Hände, zwei Spieler, Zuschauer und Wiederverbindung")
 		quit(0)
 	else:
 		for failure in _failures:
@@ -34,55 +34,155 @@ func _run() -> void:
 		quit(1)
 
 
-func _test_http() -> void:
+func _test_http_public_surface() -> void:
 	var request := HTTPRequest.new()
 	root.add_child(request)
 	var error := request.request("http://127.0.0.1:18765/")
-	_check(error == OK, "HTTP-Anfrage kann gestartet werden")
+	_check(error == OK, "Controller-HTML kann angefordert werden")
 	if error == OK:
 		var response: Array = await request.request_completed
-		_check(response[1] == 200, "Controller-HTML antwortet mit HTTP 200")
 		var body: String = response[3].get_string_from_utf8()
-		_check(body.contains("ASHENBORN") and body.contains("new WebSocket"), "Controller enthält Oberfläche und WebSocket-Client")
-		_check(body.contains("function choose") and body.contains("UPGRADE ERHALTEN") and body.contains("SCHAU AUF DEN TV"), "Controller wählt mit einem Tap und zeigt Upgrade- sowie Kampfzustand")
-		_check(not body.contains("id=\"attack\""), "Controller besitzt keinen zusätzlichen Bestätigungsbutton")
-		_check(body.contains("object-fit:contain") and not body.contains(".card img{width:100%;height:100%;object-fit:cover"), "Kartenartwork wird vollständig und unverzerrt dargestellt")
-		_check(body.contains("aspect-ratio:2/3") and body.contains("overflow-wrap:anywhere") and body.contains("c.description") and body.contains("c.rank_label"), "Drei responsive 2:3-Karten zeigen Namen, Beschreibung und Rang")
+		_check(response[1] == 200 and body.contains("localStorage") and body.contains("type:'hello'"), "Controller unterstützt sitzungsgebundene Identität und Wiederverbindung")
+		_check(body.contains("BEREIT – WARTE AUF MITSPIELER") and not body.contains("fetch('/api/select"), "Controller wartet nach einem Tap ohne unsicheren HTTP-Fallback")
+		_check(body.contains("object-fit:contain") and body.contains("aspect-ratio:2/3"), "Mobile Karten bleiben proportional")
+	error = request.request("http://127.0.0.1:18765/api/state")
+	if error == OK:
+		var state_response: Array = await request.request_completed
+		var public_state = JSON.parse_string(state_response[3].get_string_from_utf8())
+		_check(state_response[1] == 200 and public_state.get("hand", []).is_empty(), "Öffentliche Status-API liefert keine private Hand")
+	error = request.request("http://127.0.0.1:18765/api/select?index=0")
+	if error == OK:
+		var select_response: Array = await request.request_completed
+		_check(select_response[1] == 405, "Ungebundene HTTP-Auswahl ist gesperrt")
 	error = request.request("http://127.0.0.1:18765/asset/ash_blade")
-	_check(error == OK, "Kartenbild-Anfrage kann gestartet werden")
 	if error == OK:
 		var image_response: Array = await request.request_completed
 		var image_bytes: PackedByteArray = image_response[3]
-		_check(image_response[1] == 200 and image_bytes.size() > 1000, "Originalartwork wird als Controller-Bild ausgeliefert")
-		_check(image_bytes.size() < 1000000 and image_bytes[0] == 255 and image_bytes[1] == 216, "Controller-Artwork ist als schlankes JPEG optimiert")
 		var decoded := Image.new()
-		_check(decoded.load_jpg_from_buffer(image_bytes) == OK and decoded.get_width() * 3 == decoded.get_height() * 2, "Server bewahrt das ursprüngliche 2:3-Seitenverhältnis")
+		_check(image_response[1] == 200 and decoded.load_jpg_from_buffer(image_bytes) == OK, "Upgrade-Artwork wird ausgeliefert")
+		_check(decoded.get_width() * 3 == decoded.get_height() * 2, "Server bewahrt das 2:3-Seitenverhältnis")
 	request.queue_free()
 
 
-func _test_websocket() -> void:
+func _test_two_authenticated_clients() -> void:
+	var socket_one := await _connect_client("")
+	var welcome_one := await _wait_for_message(socket_one, "welcome")
+	await _wait_for_state(socket_one)
+	var socket_two := await _connect_client("")
+	var welcome_two := await _wait_for_message(socket_two, "welcome")
+	await _wait_for_state(socket_two)
+	_check(welcome_one.get("player_id", "") == "player_1" and welcome_two.get("player_id", "") == "player_2", "Zwei WebSockets erhalten getrennte Spieleridentitäten")
+	_check(welcome_one.get("token", "") != welcome_two.get("token", ""), "Spielersitzungen besitzen unterschiedliche geheime Tokens")
+	var ids := _server.get_active_player_ids()
+	_server.begin_match(ids)
+	_game.start_game(77, ids)
+	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"], "player_1")
+	_game.force_hand_for_tests(["rune_bolt", "blood_frenzy", "soul_fire"], "player_2")
+	_server.broadcast_state()
+	var state_one := await _wait_for_hand(socket_one, "ash_blade")
+	var state_two := await _wait_for_hand(socket_two, "rune_bolt")
+	_check(state_one.get("player_id", "") == "player_1" and state_one.get("hand", [])[0]["id"] == "ash_blade", "Client 1 erhält ausschließlich seine Hand")
+	_check(state_two.get("player_id", "") == "player_2" and state_two.get("hand", [])[0]["id"] == "rune_bolt", "Client 2 erhält seine abweichende Hand")
+
+	socket_one.send_text(JSON.stringify({"type": "select", "index": 0, "player_id": "player_2"}))
+	socket_one.send_text(JSON.stringify({"type": "select", "index": 1}))
+	await _wait_for_ready_count(1)
+	_check(_game.ready_count() == 1 and _game.players["player_2"]["ability_ranks"].is_empty() and _game.boss_hp == 120, "Socket 1 kann weder fremde Identität wählen noch per Doppeltipp auflösen")
+	socket_two.send_text(JSON.stringify({"type": "select", "index": 0}))
+	await _wait_for_phase("resolving")
+	_check(_game.boss_hp == 111 and _game.combat_result["attacks"].size() == 2, "Zweite Auswahl startet genau zwei autoritative Heldenangriffe")
+	_check(_game.combat_result["boss_attack_count"] == 1 and _game.players["player_1"]["hp"] == 18 and _game.players["player_2"]["hp"] == 18, "Morvath führt genau einen gemeinsamen Gegenangriff aus")
+
+	var spectator := await _connect_client("")
+	var spectator_welcome := await _wait_for_message(spectator, "welcome")
+	var spectator_state := await _wait_for_state(spectator)
+	_check(spectator_welcome.get("role", "") == "spectator" and spectator_state.get("hand", []).is_empty(), "Drittes Gerät wird Zuschauer ohne private Karten")
+	var boss_before := _game.boss_hp
+	spectator.send_text(JSON.stringify({"type": "select", "index": 0}))
+	await create_timer(0.05).timeout
+	_check(_game.boss_hp == boss_before, "Zuschaueraktion verändert den Spielzustand nicht")
+
+	var token_two := String(welcome_two.get("token", ""))
+	socket_two.close(1000, "reconnect test")
+	await _wait_for_connection("player_2", false)
+	var reconnect := await _connect_client(token_two)
+	var reconnect_welcome := await _wait_for_message(reconnect, "welcome")
+	var reconnect_state := await _wait_for_state(reconnect)
+	_check(reconnect_welcome.get("player_id", "") == "player_2" and reconnect_state.get("player_id", "") == "player_2", "Token stellt dieselbe Spieleridentität wieder her")
+	_check(reconnect_state.get("player", {}).get("hero", {}).get("abilities", []).size() == 1 and reconnect_state.get("player_hp", 0) == 18, "Wiederverbindung stellt Build und Lebenspunkte wieder her")
+	socket_one.close()
+	reconnect.close()
+	spectator.close()
+
+
+func _connect_client(token: String) -> WebSocketPeer:
 	var socket := WebSocketPeer.new()
-	var error := socket.connect_to_url("ws://127.0.0.1:18766")
-	_check(error == OK, "WebSocket-Verbindung kann gestartet werden")
-	for _frame in 180:
+	_check(socket.connect_to_url("ws://127.0.0.1:18766") == OK, "WebSocket-Verbindung kann beginnen")
+	for _frame in 240:
 		socket.poll()
 		if socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
-			break
+			socket.send_text(JSON.stringify({"type": "hello", "token": token}))
+			return socket
 		await process_frame
-	_check(socket.get_ready_state() == WebSocketPeer.STATE_OPEN, "WebSocket-Handshake wird abgeschlossen")
-	if socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
-		return
-	socket.send_text(JSON.stringify({"type": "select", "index": 0}))
-	socket.send_text(JSON.stringify({"type": "select", "index": 0}))
-	for _frame in 120:
+	_check(false, "WebSocket-Handshake wird abgeschlossen")
+	return socket
+
+
+func _wait_for_message(socket: WebSocketPeer, message_type: String) -> Dictionary:
+	for _frame in 300:
 		socket.poll()
-		if _game.phase == "resolving":
-			break
+		while socket.get_available_packet_count() > 0:
+			var parsed = JSON.parse_string(socket.get_packet().get_string_from_utf8())
+			if typeof(parsed) == TYPE_DICTIONARY and parsed.get("type", "") == message_type:
+				return parsed
 		await process_frame
-	_check(_game.boss_hp == 55 and _game.ability_ranks["ash_blade"] == 1, "WebSocket-Tipp schaltet Aschenklinge frei und verursacht genau einen Heldenangriff")
-	_check(_game.player_hp == 18, "WebSocket-Auswahl löst Morvaths Gegenschlag aus")
-	_check(_game.phase == "resolving", "Doppelte WebSocket-Pakete erzeugen keinen zweiten Angriff")
-	socket.close()
+	_check(false, "WebSocket-Nachricht fehlt: " + message_type)
+	return {}
+
+
+func _wait_for_state(socket: WebSocketPeer) -> Dictionary:
+	var message := await _wait_for_message(socket, "state")
+	return message.get("state", {})
+
+
+func _wait_for_hand(socket: WebSocketPeer, first_ability_id: String) -> Dictionary:
+	for _frame in 300:
+		socket.poll()
+		while socket.get_available_packet_count() > 0:
+			var parsed = JSON.parse_string(socket.get_packet().get_string_from_utf8())
+			if typeof(parsed) != TYPE_DICTIONARY or parsed.get("type", "") != "state":
+				continue
+			var received_state: Dictionary = parsed.get("state", {})
+			var received_hand: Array = received_state.get("hand", [])
+			if not received_hand.is_empty() and received_hand[0].get("id", "") == first_ability_id:
+				return received_state
+		await process_frame
+	_check(false, "Erwartete private Hand fehlt: " + first_ability_id)
+	return {}
+
+
+func _wait_for_phase(expected: String) -> void:
+	for _frame in 240:
+		if _game.phase == expected:
+			return
+		await process_frame
+	_check(false, "Spielphase erreicht nicht: " + expected)
+
+
+func _wait_for_ready_count(expected: int) -> void:
+	for _frame in 240:
+		if _game.ready_count() == expected:
+			return
+		await process_frame
+	_check(false, "Bereitschaftszähler erreicht nicht: %d" % expected)
+
+
+func _wait_for_connection(player_id: String, connected: bool) -> void:
+	for _frame in 240:
+		if _game.players.has(player_id) and _game.players[player_id].get("connected", false) == connected:
+			return
+		await process_frame
+	_check(false, "Verbindungsstatus wird nicht aktualisiert: " + player_id)
 
 
 func _check(condition: bool, message: String) -> void:

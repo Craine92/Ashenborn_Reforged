@@ -15,12 +15,14 @@ var _qr: TextureRect
 var _qr_message: Label
 var _url_label: Label
 var _status_label: Label
+var _player_labels: Array[Label] = []
 var _start_button: Button
 var _solo_button: Button
 var _back_button: Button
 var _close_button: Button
 var _connection_ready := false
 var _smartphone_connected := false
+var _connected_player_count := 0
 var _ingame_mode := false
 
 
@@ -63,7 +65,23 @@ func configure(controller_url: String, server_started: bool, has_network_address
 
 func set_smartphone_connected(connected: bool) -> void:
 	_smartphone_connected = connected
+	_connected_player_count = 1 if connected else 0
+	_update_player_labels([])
 	_update_status()
+
+
+func set_players(players: Array) -> void:
+	_connected_player_count = 0
+	for player: Dictionary in players:
+		if player.get("connected", false):
+			_connected_player_count += 1
+	_smartphone_connected = _connected_player_count > 0
+	_update_player_labels(players)
+	_update_status()
+
+
+func connected_player_count() -> int:
+	return _connected_player_count
 
 
 func is_start_enabled() -> bool:
@@ -93,13 +111,24 @@ func _update_status() -> void:
 	if not _connection_ready:
 		_status_label.text = "VERBINDUNG NICHT VERFÜGBAR"
 		_status_label.add_theme_color_override("font_color", UIStyle.RED)
-	elif _smartphone_connected:
-		_status_label.text = "Smartphone verbunden"
+	elif _connected_player_count > 0:
+		_status_label.text = "%d Smartphone%s verbunden" % [_connected_player_count, "" if _connected_player_count == 1 else "s"]
 		_status_label.add_theme_color_override("font_color", Color("55c271"))
 	else:
 		_status_label.text = "Warte auf Smartphone"
 		_status_label.add_theme_color_override("font_color", UIStyle.GOLD)
-	_start_button.disabled = not (_connection_ready and _smartphone_connected)
+	_start_button.disabled = not (_connection_ready and _connected_player_count > 0)
+
+
+func _update_player_labels(players: Array) -> void:
+	for index in _player_labels.size():
+		var connected := false
+		if index < players.size():
+			connected = players[index].get("connected", false)
+		elif players.is_empty() and index == 0:
+			connected = _smartphone_connected
+		_player_labels[index].text = "SPIELER %d   %s" % [index + 1, "● VERBUNDEN" if connected else "○ FREI"]
+		_player_labels[index].add_theme_color_override("font_color", Color("55c271") if connected else UIStyle.MUTED)
 
 
 func _build() -> void:
@@ -193,6 +222,20 @@ func _build() -> void:
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_label.add_theme_font_size_override("font_size", 22)
 	details.add_child(_status_label)
+	var players_row := HBoxContainer.new()
+	players_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	players_row.add_theme_constant_override("separation", 10)
+	details.add_child(players_row)
+	for index in 2:
+		var player_label := Label.new()
+		player_label.custom_minimum_size = Vector2(205, 34)
+		player_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		player_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		player_label.text = "SPIELER %d   ○ FREI" % (index + 1)
+		player_label.add_theme_font_size_override("font_size", 13)
+		player_label.add_theme_color_override("font_color", UIStyle.MUTED)
+		players_row.add_child(player_label)
+		_player_labels.append(player_label)
 	_start_button = Button.new()
 	_start_button.text = "SPIEL STARTEN"
 	UIStyle.style_button(_start_button, Color("55c271"))

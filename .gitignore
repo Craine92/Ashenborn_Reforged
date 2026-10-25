@@ -1,6 +1,7 @@
 # Godot 4.7 import cache and generated platform projects
 .godot/
 .import/
+/docs/screenshots/*.import
 /android/
 
 # Local builds and exports

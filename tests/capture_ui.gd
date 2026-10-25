@@ -14,25 +14,37 @@ func _run() -> void:
 	root.add_child(main)
 	for _frame in 10:
 		await process_frame
+	var server: WebControllerServer = main.get("_server")
+	if "--controller-preview" in OS.get_cmdline_user_args():
+		server.stop()
+		server.start(18875, 18876)
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-menu.png"))
 	main.call("_show_lobby")
 	for _frame in 10:
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-lobby.png"))
 	main.call("_start_battle", false)
-	for _frame in 10:
-		await process_frame
-	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-battle.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_tv_arena.png"))
 	var battle: BattleView = main.get("_battle")
 	var game: GameState = main.get("_game")
-	game.select_upgrade(0, "capture")
+	battle.set_connection_info("http://192.168.1.50:8765", true)
+	battle.set_smartphone_connected(true)
+	game.start_game(77, ["player_1", "player_2"])
+	if "--controller-preview" in OS.get_cmdline_user_args():
+		server.end_match()
+	for _frame in 10:
+		await process_frame
+	if "--controller-preview" in OS.get_cmdline_user_args():
+		await create_timer(30.0).timeout
+	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-battle.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02a_coop_arena.png"))
+	game.select_upgrade("player_1", 0, "capture")
+	game.select_upgrade("player_2", 0, "capture")
 	for _frame in 90:
 		if battle.get("_attacker_card").modulate.a >= 0.95:
 			break
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-attack-intro.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_hero_attack.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02a_coop_attack.png"))
 	for _frame in 90:
 		if battle.get("_boss_damage_label").modulate.a >= 0.5:
 			break
@@ -48,10 +60,7 @@ func _run() -> void:
 	main.call("_start_battle", true)
 	for _frame in 10:
 		await process_frame
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_pc_test.png"))
-	if "--controller-preview" in OS.get_cmdline_user_args():
-		await create_timer(30.0).timeout
-	var server: WebControllerServer = main.get("_server")
+	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-pc-test.png"))
 	server.stop()
 	main.queue_free()
 	await process_frame

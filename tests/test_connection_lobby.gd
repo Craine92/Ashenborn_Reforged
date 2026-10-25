@@ -19,6 +19,7 @@ func _run() -> void:
 	_lobby = ConnectionLobby.new()
 	root.add_child(_lobby)
 	_server.connection_changed.connect(_lobby.set_smartphone_connected)
+	_server.players_changed.connect(_lobby.set_players)
 	var server_ok := _server.start(18775, 18776)
 	var url := _server.controller_url()
 	if url.is_empty():
@@ -40,16 +41,42 @@ func _run() -> void:
 	_check(connect_error == OK, "Smartphone-WebSocket kann die Verbindung beginnen")
 	for _frame in 240:
 		socket.poll()
+		if socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
+			socket.send_text(JSON.stringify({"type": "hello", "token": ""}))
+			break
+		await process_frame
+	for _frame in 240:
+		socket.poll()
 		if _server.is_smartphone_connected():
 			break
 		await process_frame
 	_check(_server.is_smartphone_connected(), "Server erkennt den geöffneten Smartphone-WebSocket")
-	_check(_lobby.status_text() == "Smartphone verbunden", "Lobby zeigt den verbundenen Status")
+	_check(_lobby.status_text() == "1 Smartphone verbunden", "Lobby zeigt Spieler 1 als verbunden")
 	_check(_lobby.is_start_enabled(), "SPIEL STARTEN wird nach dem Handshake freigeschaltet")
-
-	socket.close(1000, "test complete")
+	var socket_two := WebSocketPeer.new()
+	_check(socket_two.connect_to_url("ws://127.0.0.1:18776") == OK, "Zweites Smartphone kann dieselbe QR-Adresse verwenden")
+	for _frame in 240:
+		socket_two.poll()
+		if socket_two.get_ready_state() == WebSocketPeer.STATE_OPEN:
+			socket_two.send_text(JSON.stringify({"type": "hello", "token": ""}))
+			break
+		await process_frame
 	for _frame in 240:
 		socket.poll()
+		socket_two.poll()
+		if _server.connected_player_count() == 2:
+			break
+		await process_frame
+	_check(_server.connected_player_count() == 2 and _lobby.connected_player_count() == 2, "Lobby erfasst zwei aktive Smartphones")
+	_check(_lobby.status_text() == "2 Smartphones verbunden", "Lobby zeigt beide belegten Spielerplätze")
+	var player_labels: Array = _lobby.get("_player_labels")
+	_check(player_labels[0].text.contains("VERBUNDEN") and player_labels[1].text.contains("VERBUNDEN"), "Spieler 1 und Spieler 2 werden getrennt als verbunden angezeigt")
+
+	socket.close(1000, "test complete")
+	socket_two.close(1000, "test complete")
+	for _frame in 240:
+		socket.poll()
+		socket_two.poll()
 		if not _server.is_smartphone_connected():
 			break
 		await process_frame

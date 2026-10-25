@@ -47,9 +47,12 @@ func _ready() -> void:
 
 	_server = WebControllerServer.new()
 	add_child(_server)
-	_server.state_provider = Callable(_game, "get_snapshot")
-	_server.card_selected.connect(func(index: int) -> void: _game.select_upgrade(index, "web"))
+	_server.public_state_provider = Callable(_game, "get_public_snapshot")
+	_server.private_state_provider = Callable(_game, "get_private_snapshot")
+	_server.player_selected.connect(func(player_id: String, index: int) -> void: _game.select_upgrade(player_id, index, "web"))
 	_server.connection_changed.connect(_on_connection_changed)
+	_server.players_changed.connect(_on_players_changed)
+	_server.player_connection_changed.connect(_on_player_connection_changed)
 	_server_started = _server.start()
 	_configure_connection_views()
 	_set_volume(75.0)
@@ -67,11 +70,19 @@ func _start_battle(pc_test_mode: bool = false) -> void:
 	_connection_overlay.visible = false
 	_battle.set_pc_test_mode(pc_test_mode)
 	_battle.visible = true
-	_game.start_game()
+	var player_ids: Array[String] = []
+	if pc_test_mode:
+		player_ids.append(GameState.DEFAULT_PLAYER_ID)
+		_server.begin_match([])
+	else:
+		player_ids = _server.get_active_player_ids()
+		_server.begin_match(player_ids)
+	_game.start_game(-1, player_ids)
 
 
 func _show_lobby() -> void:
 	_game.return_to_menu()
+	_server.end_match()
 	_menu.visible = false
 	_battle.visible = false
 	_connection_overlay.visible = false
@@ -86,6 +97,7 @@ func _show_connection_overlay() -> void:
 
 func _return_to_menu() -> void:
 	_game.return_to_menu()
+	_server.end_match()
 	_battle.visible = false
 	_lobby.visible = false
 	_connection_overlay.visible = false
@@ -98,17 +110,24 @@ func _configure_connection_views() -> void:
 	var has_address := is_instance_valid(_server) and _server.has_network_address()
 	var connected := is_instance_valid(_server) and _server.is_smartphone_connected()
 	_lobby.configure(url, _server_started, has_address)
-	_lobby.set_smartphone_connected(connected)
+	_lobby.set_players(_server.lobby_players())
 	_connection_overlay.configure(url, _server_started, has_address)
-	_connection_overlay.set_smartphone_connected(connected)
+	_connection_overlay.set_players(_server.lobby_players())
 	_battle.set_connection_info(url, _server_started and has_address)
 	_battle.set_smartphone_connected(connected)
 
 
 func _on_connection_changed(connected: bool) -> void:
-	_lobby.set_smartphone_connected(connected)
-	_connection_overlay.set_smartphone_connected(connected)
 	_battle.set_smartphone_connected(connected)
+
+
+func _on_players_changed(players: Array) -> void:
+	_lobby.set_players(players)
+	_connection_overlay.set_players(players)
+
+
+func _on_player_connection_changed(player_id: String, connected: bool) -> void:
+	_game.set_player_connected(player_id, connected)
 
 
 func _on_state_changed(_snapshot: Dictionary) -> void:

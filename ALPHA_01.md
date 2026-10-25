@@ -1,107 +1,91 @@
-# ASHENBORN REFORGED – Alpha 0.1.5 · Hero Progression
+# ASHENBORN REFORGED – Alpha 0.2A · Co-op Multiplayer Foundation
 
 ## Start
 
-1. Repository mit installiertem Git LFS klonen beziehungsweise das Projektverzeichnis in Godot **4.7.1** öffnen.
-2. Projekt mit **F5** starten.
-3. **SPIELEN** wählen und den QR-Code mit einem Smartphone im selben WLAN öffnen.
-4. Nach dem Handshake **SPIEL STARTEN** wählen.
+1. Projekt mit Git LFS klonen und in Godot **4.7.1** öffnen.
+2. Mit **F5** starten und **SPIELEN** wählen.
+3. Den gemeinsamen QR-Code mit einem oder zwei Smartphones im selben WLAN öffnen.
+4. Sobald mindestens **Spieler 1** verbunden ist, **SPIEL STARTEN** wählen.
 
-Für lokale Bedienung ohne Smartphone steht weiterhin **OHNE SMARTPHONE TESTEN** zur Verfügung.
+Ein drittes oder späteres Gerät wird in Alpha 0.2A Zuschauer. **OHNE SMARTPHONE TESTEN** startet weiterhin den markierten lokalen PC-Testmodus.
 
-## Neuer Kernablauf
+## Gemeinsamer Kampfablauf
 
-Der Spieler führt den permanenten Helden **Aschenritter** durch einen vollständigen Bosskampf gegen Morvath:
+1. Jeder lebende, verbundene Spieler erhält drei eigene Upgrade-Angebote.
+2. Ein Tipp merkt das Upgrade verbindlich vor; ein zweiter Tipp wird abgewiesen.
+3. Das Smartphone zeigt **BEREIT – WARTE AUF MITSPIELER**, der Fernseher den gemeinsamen Bereitschaftszähler.
+4. Erst wenn alle erreichbaren aktiven Spieler bereit sind, werden die Upgrades aktiviert.
+5. Die Aschenritter greifen mit ihren individuellen Builds nacheinander an.
+6. Morvath führt genau einen gemeinsamen Gegenangriff aus und trifft jeden lebenden Helden für zwei Basisschaden abzüglich dessen persönlichem Knochenschutz.
+7. Die nächste gemeinsame Runde beginnt automatisch.
 
-1. Das Smartphone zeigt drei unterschiedliche Upgrade-Karten.
-2. Ein Tipp wählt genau eine Karte verbindlich aus.
-3. Die Fähigkeit wird freigeschaltet oder um einen Rang erhöht.
-4. Der Aschenritter greift automatisch mit allen aktiven Boni an.
-5. Lebensraub wird angewendet, anschließend greift Morvath unter Berücksichtigung von Knochenschutz zurück.
-6. Die nächste Runde beginnt automatisch mit drei neuen Angeboten.
+Morvath besitzt im Solo-Spiel 60 LP und bei zwei Spielern 120 LP. Jeder Aschenritter startet mit 20 LP. Die Gruppe gewinnt beim Tod Morvaths und verliert erst, wenn alle Helden gefallen sind.
 
-Fähigkeiten bleiben bis zum Sieg oder zur Niederlage aktiv. Bereits erworbene, noch nicht maximierte Fähigkeiten werden ab Runde 2 nach Möglichkeit erneut angeboten. Innerhalb einer Hand gibt es keine Duplikate; Fähigkeiten auf Rang 3 werden ausgeschlossen.
+## Spieler- und Verbindungsmodell
 
-## Held und Balancing
+Der `GameState` verwaltet datengetriebene Spielerobjekte mit stabiler ID, Anzeigename, eigenem Helden, Leben, Hand, Fähigkeitsrängen, Bereitschaft und Verbindungsstatus. Das Modell unterstützt bis zu sechs Spielerzustände; die Alpha-0.2A-Lobby vergibt höchstens zwei aktive Plätze.
 
-| Wert | Aschenritter / Morvath |
-|---|---:|
-| Heldenleben | 20 |
-| Basisangriff | 4 |
-| Morvaths Leben | 60 |
-| Morvaths Basisangriff | 2 |
+Jedes Smartphone erhält beim WebSocket-Handshake ein zufälliges Sitzungstoken. Dieses Token wird lokal im Browser gespeichert und stellt nach einem Verbindungsabbruch dieselbe Spieleridentität einschließlich Leben, Build und Hand wieder her. Neue Geräte werden während einer laufenden Partie nicht in die aktive Gruppe aufgenommen.
 
-80 deterministische, zufällig gespielte Solopartien dauerten im Mittel **10,26 Runden**. Damit liegt die erste Testkalibrierung im Zielbereich von 8–12 Runden.
+Wenn ein noch nicht bereiter Spieler die Verbindung verliert, wird er nicht länger für die Bereitschaftsschranke gezählt. Der Host wählt kein Upgrade für ihn. Bereits bestätigte Auswahlen bleiben gültig. Der Held verbleibt in der Partie und kann nach Wiederverbindung weiterspielen.
 
-## Fähigkeiten
+## Datenschutz und Autorität
 
-| Fähigkeit | Seltenheit | Rangwirkung |
-|---|---|---|
-| Aschenklinge | Gewöhnlich | +1 / +2 / +3 Angriff insgesamt |
-| Lebensraub | Gewöhnlich | Heilt nach Angriff 1 / 2 / 3 LP |
-| Knochenschutz | Selten | Jeder zweite Angriff −1; dann −2; Rang 3 immer −1 und jeden zweiten insgesamt −2 |
-| Runenblitz | Selten | Alle drei Runden +2 / +4 / +6 Schaden |
-| Blutrausch | Episch | Unter 50 % LP +2 / +3 / +5 Angriff |
-| Seelenfeuer | Legendär | Jeder dritte Angriff +4 / +7 / +10 Schaden |
+- Der Host ist die einzige Autorität für Ränge, Schaden, Heilung, Schutz, Runden und Ergebnisse.
+- Öffentliche Snapshots enthalten Boss, Runde, öffentliche Heldenwerte und Bereitschaft, aber keine Hände.
+- Private Hände werden pro authentifizierter WebSocket-Verbindung erzeugt.
+- Eine Auswahl wird aus der gebundenen Socket-Identität abgeleitet; eine vom Client behauptete fremde Spieler-ID wird ignoriert.
+- `/api/state` ist öffentlich und handkartenfrei.
+- Der alte ungebundene `/api/select`-Weg antwortet mit HTTP 405.
+- Zuschauer können keine Auswahl auslösen.
 
-Seelenfeuer besitzt ein deutlich geringeres Angebotsgewicht als normale Fähigkeiten. Seltenheit und Fähigkeitsrang werden unabhängig voneinander dargestellt.
+HTTP und WebSocket bleiben bewusst lokal und unverschlüsselt; der QR-Code und die bestehende WLAN-Erkennung wurden nicht ersetzt.
+
+## Erhaltene Hero-Progression
+
+Aschenklinge, Lebensraub, Knochenschutz, Runenblitz, Blutrausch und Seelenfeuer besitzen weiterhin drei Ränge und dieselben Alpha-0.1.5-Effekte. Fähigkeiten, Hände, Angriffs- und Bossangriffszähler werden pro Spieler geführt. Alte Kreaturenkarten und alle bestehenden Artworks bleiben im Projekt.
 
 ## TV und Smartphone
 
-Der Fernseher bleibt die öffentliche Kampfarena. Er zeigt Morvath, Aschenritter, beide Lebensleisten, Runde, aktive Fähigkeiten mit Rang sowie bestätigte Angriffe, Heilung, Block und Schadenszahlen. Private Angebote sind dort nur in der ausdrücklich markierten PC-Testansicht sichtbar.
+Die öffentliche TV-Arena zeigt Morvath zentral, beide Spieler mit Name, Verbindung, Bereitschaft, LP und aktiven Fähigkeiten sowie den Zähler **1/2 BEREIT** beziehungsweise **2/2 BEREIT**. Während der Auflösung werden Spielername, Upgrade, Angriff und persönlicher Treffereffekt eindeutig nacheinander angezeigt. Private Karten erscheinen nur in der gekennzeichneten PC-Testansicht.
 
-Der Smartphone-Controller zeigt im Hochformat Heldenname, Leben, Runde und drei Upgrade-Karten mit Name, Beschreibung, Seltenheit und nächstem Rang. Die Auswahl benötigt keinen Bestätigungsbutton. Direkt danach erscheinen **UPGRADE ERHALTEN** und anschließend **KAMPF LÄUFT – SCHAU AUF DEN TV**.
-
-Controller-Artworks werden serverseitig proportional verkleinert. Das ursprüngliche Seitenverhältnis bleibt erhalten; CSS stellt das vollständige Bild mit `object-fit: contain` dar.
-
-## Technische Struktur
-
-- `HeroDatabase`: datengetriebene Heldengrundwerte und Artwork
-- `AbilityDatabase`: sechs Fähigkeitsdefinitionen, Ränge, Effekte, Seltenheiten und Angebotsgewichte
-- `GameState`: alleinige Autorität für Aufwertung, Schaden, Heilung, Block, Sieg, Niederlage und Rundenwechsel
-- Öffentlicher TV-Snapshot ohne Handkarten
-- Privater Controller-Snapshot mit Upgrade-Angeboten
-- Bestehende Kreaturendaten und Artworks bleiben vollständig erhalten
-- Animationen lesen ausschließlich bestätigte Werte aus dem Kampfprotokoll und verändern keine Lebenspunkte
-
-## Screenshots
-
-- [TV – Upgrade-Auswahl](docs/screenshots/alpha_015_tv_arena.png)
-- [TV – Aschenritter greift an](docs/screenshots/alpha_015_hero_attack.png)
-- [TV – PC-Testansicht](docs/screenshots/alpha_015_pc_test.png)
-- [Smartphone – drei Upgrade-Karten bei 320 × 568](docs/screenshots/alpha_015_smartphone.png)
+Der Smartphone-Controller bleibt hochkant und zeigt nur die eigene Hand, eigene LP, Runde und Boss-LP. Nach der Auswahl gibt es keinen Bestätigungsbutton. Zuschauer sehen ausschließlich öffentliche Kampfdaten.
 
 ## Tests
 
-Ausgeführt mit Godot 4.7.1 unter Windows:
+Automatisiert unter Godot 4.7.1 geprüft:
 
-- **PASS:** Heldstart und drei eindeutige Upgrade-Angebote
-- **PASS:** Freischaltung und Aufwertung bis Rang 3
-- **PASS:** Rang 3 wird nicht überschritten und nicht erneut angeboten
-- **PASS:** Ab Runde 2 wird nach Möglichkeit ein vorhandenes Upgrade angeboten
-- **PASS:** Aschenklinge, Lebensraub, Knochenschutz, Runenblitz, Blutrausch und Seelenfeuer
-- **PASS:** Autoritativer Heldenangriff und Morvaths Gegenschlag
-- **PASS:** Heilung bleibt unter maximalem Leben; Schaden wird nie negativ
-- **PASS:** Sieg, Niederlage und automatischer Rundenwechsel
-- **PASS:** Doppeltipps erzeugen weder doppelte Ränge noch doppelten Schaden
-- **PASS:** PC-Testmodus und öffentliche TV-Ansicht
-- **PASS:** HTTP, WebSocket, QR-Lobby und Verbindungsstatus
-- **PASS:** Browser-Rendering bei 320 × 568 ohne Scrollpflicht
-- **PASS:** 80 vollständige Balancing-Simulationen, Mittelwert 10,26 Runden
+- Solo-Regression einschließlich 80 vollständiger Partien, Mittelwert 10,26 Runden
+- Zwei getrennte Spielerzustände und 120 Boss-LP
+- Unterschiedliche private Hände und Builds
+- 1/2-Bereitschaft ohne vorzeitige Aufwertung oder Schaden
+- Zwei Heldenangriffe und exakt ein gemeinsamer Bossangriff
+- Persönlicher Lebensraub und Knochenschutz
+- Doppeltipps, ungültige Aktionen und Zuschaueraktionen
+- Öffentliche HTTP-Daten ohne Hand und gesperrte HTTP-Auswahl
+- Zwei echte lokale WebSocket-Clients mit gebundener Identität
+- Verbindungsabbruch und Wiederverbindung per Sitzungstoken
+- Gruppen-Sieg und Gruppen-Niederlage
+- QR-Lobby, PC-Testmodus und bestehendes Kampf-Feedback
+- Sechs-Spieler-Datenmodell bei auf zwei begrenzter Alpha-Lobby
 
 ```powershell
 godot --headless --path . --script res://tests/test_game_state.gd
+godot --headless --path . --script res://tests/test_coop_game_state.gd
 godot --headless --path . --script res://tests/test_web_controller.gd
 godot --headless --path . --script res://tests/test_connection_lobby.gd
 godot --headless --path . --script res://tests/test_combat_feedback.gd
 godot --headless --path . --script res://tests/test_main_scene.gd
 ```
 
-## Bewusste Grenzen
+## Screenshots
 
-- Nur ein spielbarer Held
-- Noch keine Heldenauswahl und kein Multiplayer
-- Keine Relikttruhen, neuen Bosse oder zusätzlichen Zufallsereignisse
-- HTTP und WebSocket bleiben für das vertrauenswürdige lokale WLAN unverschlüsselt
+- [Koop-TV-Arena](docs/screenshots/alpha_02a_coop_arena.png)
+- [Zugeordneter Koop-Angriff](docs/screenshots/alpha_02a_coop_attack.png)
+
+## Grenzen von Alpha 0.2A
+
+- Maximal zwei aktive Smartphone-Spieler; weitere Geräte sind Zuschauer
+- Beide Spieler verwenden den Aschenritter
+- Keine neuen Bosse, Helden, Fähigkeiten, Relikte oder Animationssysteme
 - Reine IPv6-Netze werden noch nicht unterstützt
-- Die neuen Morvath-Frame-Sätze sind dokumentiert, aber noch nicht umfassend integriert

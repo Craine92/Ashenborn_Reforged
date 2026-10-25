@@ -29,6 +29,13 @@ var _boss_attack_pose: TextureRect
 var _boss_fx: TextureRect
 var _boss_damage_label: Label
 var _player_panel: PanelContainer
+var _secondary_player_panel: PanelContainer
+var _secondary_name_label: Label
+var _secondary_hp_label: Label
+var _secondary_bar: ProgressBar
+var _secondary_abilities_label: Label
+var _secondary_status_label: Label
+var _player_status_label: Label
 var _player_damage_label: Label
 var _hero_heal_label: Label
 var _block_label: Label
@@ -44,6 +51,8 @@ var _pc_test_mode := false
 var _connection_available := false
 var _displayed_boss_hp := -1
 var _displayed_player_hp := -1
+var _displayed_player_hps: Dictionary = {}
+var _primary_display_player_id := GameState.DEFAULT_PLAYER_ID
 var _sequence_id := 0
 var _active_tweens: Array[Tween] = []
 
@@ -96,12 +105,23 @@ func set_state(state: Dictionary) -> void:
 	_round_label.text = "RUNDE  %d" % round_number
 
 	var boss_hp: int = state.get("boss_hp", 0)
-	var hero_state: Dictionary = state.get("hero", {})
-	var player_hp: int = hero_state.get("hp", state.get("player_hp", 0))
+	var state_players: Array = state.get("players", [])
+	if state_players.is_empty():
+		state_players = [{
+			"id": GameState.DEFAULT_PLAYER_ID,
+			"display_name": "Spieler 1",
+			"hp": state.get("player_hp", 0),
+			"max_hp": state.get("player_max_hp", 20),
+			"connected": true,
+			"alive": state.get("player_hp", 0) > 0,
+			"ready": false,
+			"hero": state.get("hero", {}),
+		}]
+	var primary_player: Dictionary = state_players[0]
+	var hero_state: Dictionary = primary_player.get("hero", state.get("hero", {}))
+	var player_hp: int = primary_player.get("hp", state.get("player_hp", 0))
 	_boss_bar.max_value = state.get("boss_max_hp", 30)
-	_player_bar.max_value = hero_state.get("max_hp", state.get("player_max_hp", 20))
-	_hero_name_label.text = String(hero_state.get("name", "Aschenritter")).to_upper()
-	_update_active_abilities(hero_state.get("abilities", []))
+	_update_player_displays(state_players)
 
 	for index in _cards.size():
 		_cards[index].visible = index < _current_hand.size()
@@ -113,31 +133,38 @@ func set_state(state: Dictionary) -> void:
 		_displayed_boss_hp = boss_hp
 		_displayed_player_hp = player_hp
 		_set_boss_health(boss_hp)
-		_set_player_health(player_hp)
+		for player: Dictionary in state_players:
+			_set_player_health_for_id(String(player.get("id", "")), int(player.get("hp", 0)))
 
 	var selected: Dictionary = state.get("selected_upgrade", {})
-	var is_combat_event := phase in ["resolving", "victory", "defeat"] and not selected.is_empty()
+	var combat_attacks: Array = state.get("combat", {}).get("attacks", [])
+	var is_combat_event := phase in ["resolving", "victory", "defeat"] and (not selected.is_empty() or not combat_attacks.is_empty())
 	if is_combat_event:
 		var old_boss_hp := _displayed_boss_hp
 		var old_player_hp := _displayed_player_hp
 		_end_panel.visible = false
-		_play_combat_sequence(state, old_boss_hp, old_player_hp)
+		if state_players.size() > 1:
+			_play_coop_combat_sequence(state, old_boss_hp)
+		else:
+			_play_combat_sequence(state, old_boss_hp, old_player_hp)
 	elif phase == "awaiting_selection":
 		_sequence_id += 1
 		_reset_combat_visuals()
 		_set_boss_health(boss_hp)
-		_set_player_health(player_hp)
+		for player: Dictionary in state_players:
+			_set_player_health_for_id(String(player.get("id", "")), int(player.get("hp", 0)))
 		_hand.visible = _pc_test_mode
 		if previous_round > 0 and round_number != previous_round:
 			_play_round_intro(round_number, _sequence_id)
 		else:
-			_show_status("WÄHLE EIN UPGRADE", UIStyle.CYAN)
+			_show_ready_status(state)
 		_end_panel.visible = false
 	else:
 		_sequence_id += 1
 		_reset_combat_visuals()
 		_set_boss_health(boss_hp)
-		_set_player_health(player_hp)
+		for player: Dictionary in state_players:
+			_set_player_health_for_id(String(player.get("id", "")), int(player.get("hp", 0)))
 		_show_status(state.get("result", ""), UIStyle.TEXT)
 		_end_panel.visible = phase == "victory" or phase == "defeat"
 
@@ -210,6 +237,10 @@ func _build_encounter() -> Control:
 	var balance := Control.new()
 	balance.custom_minimum_size.x = 245
 	row.add_child(balance)
+	_secondary_player_panel = _build_secondary_player_panel()
+	_secondary_player_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_secondary_player_panel.visible = false
+	balance.add_child(_secondary_player_panel)
 
 	var boss_group := HBoxContainer.new()
 	boss_group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -304,6 +335,11 @@ func _build_encounter() -> Control:
 	_abilities_label.add_theme_font_size_override("font_size", 12)
 	_abilities_label.add_theme_color_override("font_color", UIStyle.MUTED)
 	player_info.add_child(_abilities_label)
+	_player_status_label = Label.new()
+	_player_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_player_status_label.add_theme_font_size_override("font_size", 12)
+	_player_status_label.add_theme_color_override("font_color", UIStyle.CYAN)
+	player_info.add_child(_player_status_label)
 	_player_damage_label = _damage_label(UIStyle.RED.lightened(0.18))
 	_player_damage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_player_panel.add_child(_player_damage_label)
@@ -314,6 +350,44 @@ func _build_encounter() -> Control:
 	_block_label.add_theme_font_size_override("font_size", 24)
 	_player_panel.add_child(_block_label)
 	return row
+
+
+func _build_secondary_player_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UIStyle.box(UIStyle.PANEL_SOFT, Color("526d8540"), 1, 10))
+	var info := VBoxContainer.new()
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	info.add_theme_constant_override("separation", 7)
+	panel.add_child(info)
+	_secondary_name_label = Label.new()
+	_secondary_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_secondary_name_label.add_theme_font_size_override("font_size", 18)
+	_secondary_name_label.add_theme_color_override("font_color", UIStyle.GOLD)
+	info.add_child(_secondary_name_label)
+	var art := TextureRect.new()
+	art.texture = load(HeroDatabase.ASH_KNIGHT["artwork"])
+	art.custom_minimum_size = Vector2(120, 112)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.add_child(art)
+	_secondary_hp_label = _health_label(25)
+	info.add_child(_secondary_hp_label)
+	_secondary_bar = _health_bar(UIStyle.RED, Vector2(190, 15))
+	info.add_child(_secondary_bar)
+	_secondary_abilities_label = Label.new()
+	_secondary_abilities_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_secondary_abilities_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_secondary_abilities_label.custom_minimum_size = Vector2(205, 48)
+	_secondary_abilities_label.add_theme_font_size_override("font_size", 11)
+	_secondary_abilities_label.add_theme_color_override("font_color", UIStyle.MUTED)
+	info.add_child(_secondary_abilities_label)
+	_secondary_status_label = Label.new()
+	_secondary_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_secondary_status_label.add_theme_font_size_override("font_size", 12)
+	_secondary_status_label.add_theme_color_override("font_color", UIStyle.CYAN)
+	info.add_child(_secondary_status_label)
+	return panel
 
 
 func _build_action_row() -> Control:
@@ -539,6 +613,104 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 		_finish_outcome("defeat", sequence)
 
 
+func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
+	_sequence_id += 1
+	var sequence := _sequence_id
+	_kill_active_tweens()
+	for card in _cards:
+		card.set_interactable(false)
+	_hand.modulate = Color(1, 1, 1, 0.28)
+	var combat: Dictionary = state.get("combat", {})
+	var attacks: Array = combat.get("attacks", [])
+	for attack: Dictionary in attacks:
+		if sequence != _sequence_id:
+			return
+		var upgrade: Dictionary = attack.get("selected_upgrade", {})
+		var player_name := String(attack.get("display_name", "ASCHENRITTER")).to_upper()
+		var damage := int(attack.get("hero_damage", 0))
+		combat_sequence_started.emit(String(upgrade.get("name", "Upgrade")), damage, 0)
+		_attacker_art.texture = load(HeroDatabase.ASH_KNIGHT["artwork"])
+		var rarity_color: Color = AbilityDatabase.RARITY_COLORS.get(upgrade.get("rarity", "common"), UIStyle.CYAN)
+		_attacker_card.add_theme_stylebox_override("panel", UIStyle.card_box(rarity_color, true, false))
+		_attacker_name.text = "%s · ASCHENRITTER" % player_name
+		var viewport_size := get_viewport_rect().size
+		var start := Vector2(viewport_size.x * 0.08, viewport_size.y * 0.22)
+		var impact_position := Vector2(viewport_size.x * 0.27, start.y)
+		_attacker_card.position = start
+		_attacker_card.scale = Vector2(0.9, 0.9)
+		_attacker_card.modulate = Color(1, 1, 1, 0)
+		_attacker_card.visible = true
+		var rank_text := "FREIGESCHALTET" if upgrade.get("unlocked", false) else "RANG %d" % int(upgrade.get("acquired_rank", 1))
+		_show_status("%s · %s %s" % [player_name, String(upgrade.get("name", "UPGRADE")).to_upper(), rank_text], rarity_color)
+		var reveal := _new_tween()
+		reveal.set_parallel(true)
+		reveal.tween_property(_attacker_card, "modulate:a", 1.0, 0.12)
+		reveal.tween_property(_attacker_card, "scale", Vector2.ONE, 0.12)
+		await reveal.finished
+		if sequence != _sequence_id:
+			return
+		_show_status("%s GREIFT AN" % player_name, UIStyle.GOLD)
+		var dash := _new_tween()
+		dash.tween_property(_attacker_card, "position", impact_position, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		await dash.finished
+		if sequence != _sequence_id:
+			return
+		combat_audio.emit("attack")
+		_show_damage(_boss_damage_label, damage)
+		var boss_before := int(attack.get("boss_hp_before", old_boss_hp))
+		var boss_after := int(attack.get("boss_hp_after", boss_before - damage))
+		var impact := _new_tween()
+		impact.set_parallel(true)
+		impact.tween_method(_set_boss_health_float, float(boss_before), float(boss_after), 0.20)
+		impact.tween_property(_attacker_card, "modulate:a", 0.0, 0.18)
+		await impact.finished
+		_attacker_card.visible = false
+		var healing := int(attack.get("healing", 0))
+		if healing > 0:
+			_show_status("%s · LEBENSRAUB +%d LP" % [player_name, healing], Color("61d884"))
+			_set_player_health_for_id(String(attack.get("player_id", "")), int(attack.get("hero_hp_after_heal", 0)))
+			await get_tree().create_timer(0.12).timeout
+
+	if state.get("phase", "") == "victory":
+		_finish_outcome("victory", sequence)
+		return
+	_show_status("MORVATH SCHLÄGT EINMAL ZURÜCK", UIStyle.RED.lightened(0.2))
+	combat_audio.emit("boss_attack")
+	_boss_attack_pose.modulate = Color(1, 1, 1, 0)
+	_boss_fx.texture = load("res://assets/bosses/morvath/fx_skulls.png")
+	_boss_fx.modulate = Color(1, 1, 1, 0)
+	var windup := _new_tween()
+	windup.set_parallel(true)
+	windup.tween_property(_boss_attack_pose, "modulate:a", 1.0, 0.16)
+	windup.tween_property(_boss_portrait, "modulate:a", 0.18, 0.16)
+	windup.tween_property(_boss_fx, "modulate:a", 0.92, 0.16)
+	await windup.finished
+	for target: Dictionary in combat.get("boss_targets", []):
+		if sequence != _sequence_id:
+			return
+		var player_id := String(target.get("player_id", ""))
+		var damage := int(target.get("boss_damage", 0))
+		var blocked := int(target.get("blocked", 0))
+		var message := "%s · −%d LP" % [String(target.get("display_name", "SPIELER")).to_upper(), damage]
+		if blocked > 0:
+			message += " · SCHUTZ −%d" % blocked
+		_show_status(message, UIStyle.RED.lightened(0.2))
+		_set_player_health_for_id(player_id, int(target.get("hp_after", 0)))
+		var target_panel: Control = _player_panel if player_id == GameState.DEFAULT_PLAYER_ID else _secondary_player_panel
+		var flash := _new_tween()
+		flash.tween_property(target_panel, "modulate", Color(1, 0.42, 0.42, 1), 0.06)
+		flash.tween_property(target_panel, "modulate", Color.WHITE, 0.10)
+		await flash.finished
+	var recover := _new_tween()
+	recover.set_parallel(true)
+	recover.tween_property(_boss_attack_pose, "modulate:a", 0.0, 0.10)
+	recover.tween_property(_boss_portrait, "modulate:a", 1.0, 0.10)
+	recover.tween_property(_boss_fx, "modulate:a", 0.0, 0.10)
+	await recover.finished
+	if state.get("phase", "") == "defeat":
+		_finish_outcome("defeat", sequence)
+
+
 func _play_round_intro(round_number: int, sequence: int) -> void:
 	_hand.modulate = Color(1, 1, 1, 0)
 	_show_status("RUNDE %d" % round_number, UIStyle.GOLD)
@@ -546,7 +718,7 @@ func _play_round_intro(round_number: int, sequence: int) -> void:
 	reveal.tween_property(_hand, "modulate:a", 1.0, 0.28)
 	await get_tree().create_timer(0.42).timeout
 	if sequence == _sequence_id:
-		_show_status("WÄHLE EIN UPGRADE", UIStyle.CYAN)
+		_show_status("WÄHLT EURE UPGRADES" if _secondary_player_panel.visible else "WÄHLE EIN UPGRADE", UIStyle.CYAN)
 
 
 func _finish_outcome(phase: String, sequence: int) -> void:
@@ -559,7 +731,7 @@ func _finish_outcome(phase: String, sequence: int) -> void:
 		_show_status("SIEG", UIStyle.GOLD)
 		combat_audio.emit("victory")
 	else:
-		_end_title.text = "DU BIST GEFALLEN"
+		_end_title.text = "DIE GRUPPE IST GEFALLEN"
 		_end_title.add_theme_color_override("font_color", UIStyle.RED)
 		_show_status("NIEDERLAGE", UIStyle.RED)
 		combat_audio.emit("defeat")
@@ -571,14 +743,65 @@ func _show_status(message: String, color: Color) -> void:
 	_result_label.add_theme_color_override("font_color", color)
 
 
-func _update_active_abilities(abilities: Array) -> void:
-	if abilities.is_empty():
-		_abilities_label.text = "NOCH KEINE UPGRADES"
+func _show_ready_status(state: Dictionary) -> void:
+	var required := int(state.get("required_ready_count", 1))
+	var ready := int(state.get("ready_count", 0))
+	if required > 1 or ready > 0:
+		_show_status("%d/%d BEREIT · WÄHLT EURE UPGRADES" % [ready, required], UIStyle.CYAN)
+	elif required == 1:
+		_show_status("WÄHLE EIN UPGRADE", UIStyle.CYAN)
+	else:
+		_show_status("WARTE AUF SMARTPHONE-VERBINDUNG", UIStyle.GOLD)
+
+
+func _update_player_displays(state_players: Array) -> void:
+	if state_players.is_empty():
 		return
+	var primary: Dictionary = state_players[0]
+	_primary_display_player_id = String(primary.get("id", GameState.DEFAULT_PLAYER_ID))
+	var primary_hero: Dictionary = primary.get("hero", {})
+	_hero_name_label.text = "%s · %s" % [String(primary.get("display_name", "Spieler 1")).to_upper(), String(primary_hero.get("name", "Aschenritter")).to_upper()]
+	_player_bar.max_value = primary.get("max_hp", 20)
+	_update_active_abilities(primary_hero.get("abilities", []))
+	_player_status_label.text = _player_status(primary)
+	_player_status_label.add_theme_color_override("font_color", _player_status_color(primary))
+	_secondary_player_panel.visible = state_players.size() > 1
+	if state_players.size() > 1:
+		var secondary: Dictionary = state_players[1]
+		_secondary_name_label.text = "%s · ASCHENRITTER" % String(secondary.get("display_name", "Spieler 2")).to_upper()
+		_secondary_bar.max_value = secondary.get("max_hp", 20)
+		_secondary_abilities_label.text = _abilities_text(secondary.get("hero", {}).get("abilities", []))
+		_secondary_status_label.text = _player_status(secondary)
+		_secondary_status_label.add_theme_color_override("font_color", _player_status_color(secondary))
+
+
+func _player_status(player: Dictionary) -> String:
+	if not player.get("alive", false):
+		return "GEFALLEN"
+	if not player.get("connected", false):
+		return "VERBINDUNG GETRENNT"
+	return "BEREIT" if player.get("ready", false) else "WÄHLT"
+
+
+func _player_status_color(player: Dictionary) -> Color:
+	if not player.get("alive", false):
+		return UIStyle.RED
+	if not player.get("connected", false):
+		return UIStyle.GOLD
+	return Color("55c271") if player.get("ready", false) else UIStyle.CYAN
+
+
+func _abilities_text(abilities: Array) -> String:
+	if abilities.is_empty():
+		return "NOCH KEINE UPGRADES"
 	var entries: PackedStringArray = []
 	for ability: Dictionary in abilities:
 		entries.append("%s R%d" % [ability.get("name", ""), int(ability.get("rank", 0))])
-	_abilities_label.text = "AKTIVE UPGRADES\n" + "  ·  ".join(entries)
+	return "AKTIVE UPGRADES\n" + "  ·  ".join(entries)
+
+
+func _update_active_abilities(abilities: Array) -> void:
+	_abilities_label.text = _abilities_text(abilities)
 
 
 func _show_value(label: Label, value: String, start_offset := Vector2.ZERO) -> void:
@@ -609,8 +832,18 @@ func _set_boss_health(value: int) -> void:
 
 func _set_player_health(value: int) -> void:
 	_displayed_player_hp = value
+	_displayed_player_hps[_primary_display_player_id] = value
 	_player_bar.value = value
 	_player_hp_label.text = "%d / %d" % [value, int(_player_bar.max_value)]
+
+
+func _set_player_health_for_id(player_id: String, value: int) -> void:
+	_displayed_player_hps[player_id] = value
+	if player_id == _primary_display_player_id or player_id.is_empty():
+		_set_player_health(value)
+		return
+	_secondary_bar.value = value
+	_secondary_hp_label.text = "%d / %d" % [value, int(_secondary_bar.max_value)]
 
 
 func _set_boss_health_float(value: float) -> void:
@@ -629,6 +862,7 @@ func _reset_combat_visuals() -> void:
 	_boss_portrait.modulate = Color.WHITE
 	_boss_visual.scale = Vector2.ONE
 	_player_panel.modulate = Color.WHITE
+	_secondary_player_panel.modulate = Color.WHITE
 	_boss_damage_label.modulate.a = 0.0
 	_player_damage_label.modulate.a = 0.0
 	_hero_heal_label.modulate.a = 0.0

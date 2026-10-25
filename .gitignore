@@ -1,0 +1,35 @@
+# Godot 4.7 import cache and generated platform projects
+.godot/
+.import/
+/android/
+
+# Local builds and exports
+/build/
+/builds/
+/dist/
+/export/
+/exports/
+*.pck
+*.apk
+*.aab
+*.exe
+*.app
+*.dmg
+
+# Archives are local source duplicates, not runtime assets
+*.zip
+
+# Editor, OS, logs, temporary files and backups
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*~
+~$*

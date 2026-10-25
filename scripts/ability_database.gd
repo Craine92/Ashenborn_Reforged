@@ -152,21 +152,60 @@ static func draw_hand(rng: RandomNumberGenerator, ranks: Dictionary, round_numbe
 	return offers
 
 
-static func active_abilities(ranks: Dictionary) -> Array[Dictionary]:
+static func active_abilities(ranks: Dictionary, context: Dictionary = {}) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for ability: Dictionary in ABILITIES:
 		var rank := int(ranks.get(ability["id"], 0))
 		if rank <= 0:
 			continue
-		result.append({
+		var entry := {
 			"id": ability["id"],
 			"name": ability["name"],
 			"rank": rank,
 			"max_rank": ability["max_rank"],
 			"rarity": ability["rarity"],
 			"rarity_label": RARITY_LABELS[ability["rarity"]],
-		})
+			"effect_text": _active_effect_text(ability["id"], rank),
+			"trigger_text": "",
+			"condition_met": false,
+		}
+		var round_number := int(context.get("round", 1))
+		var attack_count := int(context.get("hero_attack_count", 0))
+		if ability["id"] == "rune_bolt":
+			var next_round := round_number if round_number % 3 == 0 else round_number + (3 - round_number % 3)
+			entry["trigger_text"] = "Nächste Auslösung: Runde %d" % next_round
+		elif ability["id"] == "soul_fire":
+			var attacks_remaining := 3 - attack_count % 3
+			entry["trigger_text"] = "Nächste Auslösung in %d Angriff%s" % [attacks_remaining, "" if attacks_remaining == 1 else "en"]
+		elif ability["id"] == "blood_frenzy":
+			var hp := int(context.get("hp", 0))
+			var max_hp := maxi(1, int(context.get("max_hp", 20)))
+			var active := hp * 2 < max_hp
+			entry["condition_met"] = active
+			entry["trigger_text"] = "Bedingung momentan: %s" % ("AKTIV" if active else "nicht aktiv")
+		result.append(entry)
 	return result
+
+
+static func _active_effect_text(ability_id: String, rank: int) -> String:
+	match ability_id:
+		"ash_blade":
+			return "Dauerhaft +%d Angriff." % effect_value(ability_id, "attack_bonus", rank)
+		"life_steal":
+			return "Heilt bei jedem Angriff %d LP." % effect_value(ability_id, "healing", rank)
+		"bone_guard":
+			if rank == 1:
+				return "Jeder 2. Bossangriff verursacht 1 Schaden weniger."
+			if rank == 2:
+				return "Jeder 2. Bossangriff verursacht 2 Schaden weniger."
+			return "Jeder Bossangriff −1, jeder 2. insgesamt −2 Schaden."
+		"rune_bolt":
+			return "+%d Schaden alle 3 Runden." % effect_value(ability_id, "periodic_damage", rank)
+		"blood_frenzy":
+			return "Unter 50 %% LP: +%d Angriff." % effect_value(ability_id, "low_health_bonus", rank)
+		"soul_fire":
+			return "Jeder 3. Angriff verursacht +%d Schaden." % effect_value(ability_id, "periodic_damage", rank)
+	return ""
 
 
 static func _weighted_pick(rng: RandomNumberGenerator, candidates: Array[Dictionary]) -> Dictionary:

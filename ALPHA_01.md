@@ -1,91 +1,117 @@
-# ASHENBORN REFORGED – Alpha 0.2A · Co-op Multiplayer Foundation
+# ASHENBORN REFORGED – Alpha 0.2B · Hero Identity, Build Tracking & Boss Animation
 
 ## Start
 
 1. Projekt mit Git LFS klonen und in Godot **4.7.1** öffnen.
 2. Mit **F5** starten und **SPIELEN** wählen.
 3. Den gemeinsamen QR-Code mit einem oder zwei Smartphones im selben WLAN öffnen.
-4. Sobald mindestens **Spieler 1** verbunden ist, **SPIEL STARTEN** wählen.
+4. Sobald mindestens ein Spieler verbunden ist, **SPIEL STARTEN** wählen.
 
-Ein drittes oder späteres Gerät wird in Alpha 0.2A Zuschauer. **OHNE SMARTPHONE TESTEN** startet weiterhin den markierten lokalen PC-Testmodus.
+**OHNE SMARTPHONE TESTEN** startet weiterhin den lokalen PC-Testmodus. Dieser wird jetzt ausdrücklich als **PC-TEST · OFFLINE BEREIT** angezeigt und nicht mehr als Netzwerkfehler behandelt.
 
-## Gemeinsamer Kampfablauf
+## Stabile Spieleridentitäten
 
-1. Jeder lebende, verbundene Spieler erhält drei eigene Upgrade-Angebote.
-2. Ein Tipp merkt das Upgrade verbindlich vor; ein zweiter Tipp wird abgewiesen.
-3. Das Smartphone zeigt **BEREIT – WARTE AUF MITSPIELER**, der Fernseher den gemeinsamen Bereitschaftszähler.
-4. Erst wenn alle erreichbaren aktiven Spieler bereit sind, werden die Upgrades aktiviert.
-5. Die Aschenritter greifen mit ihren individuellen Builds nacheinander an.
-6. Morvath führt genau einen gemeinsamen Gegenangriff aus und trifft jeden lebenden Helden für zwei Basisschaden abzüglich dessen persönlichem Knochenschutz.
-7. Die nächste gemeinsame Runde beginnt automatisch.
+- **Spieler 1:** Blau (`#4b91e2`)
+- **Spieler 2:** Violett (`#a868e8`)
+- **Weitere Geräte:** Zuschauer
 
-Morvath besitzt im Solo-Spiel 60 LP und bei zwei Spielern 120 LP. Jeder Aschenritter startet mit 20 LP. Die Gruppe gewinnt beim Tod Morvaths und verliert erst, wenn alle Helden gefallen sind.
+Nummer, Farbe und Name stammen aus der serverseitig vergebenen Spieler-ID. Das Sitzungstoken stellt bei einer Wiederverbindung dieselbe Identität, Hand, Lebenspunkte und denselben Build wieder her. Smartphone und TV verwenden dieselbe Farbe für Identitätszeile, Panel, Lebensleiste und Status.
 
-## Spieler- und Verbindungsmodell
+## Autoritatives Build-Tracking
 
-Der `GameState` verwaltet datengetriebene Spielerobjekte mit stabiler ID, Anzeigename, eigenem Helden, Leben, Hand, Fähigkeitsrängen, Bereitschaft und Verbindungsstatus. Das Modell unterstützt bis zu sechs Spielerzustände; die Alpha-0.2A-Lobby vergibt höchstens zwei aktive Plätze.
+Der Smartphone-Controller besitzt den aufklappbaren Bereich **MEINE FÄHIGKEITEN**. Er zeigt ausschließlich die Fähigkeiten des zugeordneten Spielers:
 
-Jedes Smartphone erhält beim WebSocket-Handshake ein zufälliges Sitzungstoken. Dieses Token wird lokal im Browser gespeichert und stellt nach einem Verbindungsabbruch dieselbe Spieleridentität einschließlich Leben, Build und Hand wieder her. Neue Geräte werden während einer laufenden Partie nicht in die aktive Gruppe aufgenommen.
+- Name, Seltenheitsfarbe und aktueller Rang
+- vollständige aktive Wirkung
+- nächste Runenblitz-Runde
+- verbleibende Angriffe bis Seelenfeuer
+- aktuell erfüllte oder nicht erfüllte Blutrausch-Bedingung
 
-Wenn ein noch nicht bereiter Spieler die Verbindung verliert, wird er nicht länger für die Bereitschaftsschranke gezählt. Der Host wählt kein Upgrade für ihn. Bereits bestätigte Auswahlen bleiben gültig. Der Held verbleibt in der Partie und kann nach Wiederverbindung weiterspielen.
+Diese Angaben werden bei jedem Snapshot im `GameState` aus tatsächlicher Runde, LP, Fähigkeitsrang und persönlichem Angriffszähler berechnet. Die normale Kartenwahl bleibt bei geschlossenem Menü vollständig sichtbar und ohne Scrollpflicht. Nach bestätigten Auslösungen erscheinen Meldungen wie **RUNENBLITZ +2 SCHADEN** oder **LEBENSRAUB +1 LP**.
 
-## Datenschutz und Autorität
+Private Hände und private Kampfdetails werden weiterhin pro authentifizierter WebSocket-Verbindung gefiltert. Zuschauer erhalten nur öffentliche Daten.
 
-- Der Host ist die einzige Autorität für Ränge, Schaden, Heilung, Schutz, Runden und Ergebnisse.
-- Öffentliche Snapshots enthalten Boss, Runde, öffentliche Heldenwerte und Bereitschaft, aber keine Hände.
-- Private Hände werden pro authentifizierter WebSocket-Verbindung erzeugt.
-- Eine Auswahl wird aus der gebundenen Socket-Identität abgeleitet; eine vom Client behauptete fremde Spieler-ID wird ignoriert.
-- `/api/state` ist öffentlich und handkartenfrei.
-- Der alte ungebundene `/api/select`-Weg antwortet mit HTTP 405.
-- Zuschauer können keine Auswahl auslösen.
+## Morvath-Animationskomponente
 
-HTTP und WebSocket bleiben bewusst lokal und unverschlüsselt; der QR-Code und die bestehende WLAN-Erkennung wurden nicht ersetzt.
+`BossAnimator` liest `assets/bosses/morvath/manifest.json`, lädt die dort gelisteten Einzelbilder und spielt sie mit den empfohlenen FPS ab. Die Komponente ist von der Kampflogik getrennt und kann später mit einem anderen Manifest wiederverwendet werden.
 
-## Erhaltene Hero-Progression
+| Sequenz | Frames | FPS | Einsatz |
+|---|---:|---:|---|
+| `idle` | 8 | 8 | kontinuierlich während Auswahl und Ruhe |
+| `hit_reaction` | 6 | 12 | nach jedem bestätigten Heldenangriff |
+| `energy_charge` | 8 | 10 | vor Morvaths gemeinsamem Gegenangriff |
+| `spell_blast` | 8 | 12 | Bossangriff in ungeraden Runden |
+| `skull_swarm` | 8 | 10 | alternative Darstellung desselben Bossangriffs in geraden Runden |
+| `death` | 8 | 10 | einmalig bis zum letzten Frame bei Sieg |
 
-Aschenklinge, Lebensraub, Knochenschutz, Runenblitz, Blutrausch und Seelenfeuer besitzen weiterhin drei Ränge und dieselben Alpha-0.1.5-Effekte. Fähigkeiten, Hände, Angriffs- und Bossangriffszähler werden pro Spieler geführt. Alte Kreaturenkarten und alle bestehenden Artworks bleiben im Projekt.
+Die Kampfwerte werden bereits vorher autoritativ berechnet. Animationen lesen nur das bestätigte Kampfprotokoll und erzeugen keine Schadens- oder Upgrade-Ereignisse.
 
-## TV und Smartphone
+## Synchronisierter Ablauf
 
-Die öffentliche TV-Arena zeigt Morvath zentral, beide Spieler mit Name, Verbindung, Bereitschaft, LP und aktiven Fähigkeiten sowie den Zähler **1/2 BEREIT** beziehungsweise **2/2 BEREIT**. Während der Auflösung werden Spielername, Upgrade, Angriff und persönlicher Treffereffekt eindeutig nacheinander angezeigt. Private Karten erscheinen nur in der gekennzeichneten PC-Testansicht.
+1. Spieler 1 greift an.
+2. `hit_reaction` läuft vollständig.
+3. Spieler 2 greift an.
+4. `hit_reaction` läuft erneut vollständig.
+5. `energy_charge` lädt Morvaths Angriff.
+6. `spell_blast` oder `skull_swarm` wird vollständig abgespielt.
+7. Die bereits berechneten Auswirkungen werden an beiden Helden dargestellt.
+8. Erst danach beginnt die nächste Runde.
 
-Der Smartphone-Controller bleibt hochkant und zeigt nur die eigene Hand, eigene LP, Runde und Boss-LP. Nach der Auswahl gibt es keinen Bestätigungsbutton. Zuschauer sehen ausschließlich öffentliche Kampfdaten.
+Ein tödlicher Heldenangriff überspringt Aufladung und Gegenangriff und spielt direkt `death`. Sequenz-IDs brechen veraltete Animationen bei Neustart oder Szenenwechsel ab. Jede Einzelanimation besitzt zusätzlich ein begrenztes Zeitfenster.
+
+## Asset-Audit
+
+Alle 46 Manifestdateien existieren, sind lesbar, besitzen einen Alphakanal, haben innerhalb ihrer Sequenz eindeutige Inhalte und zeigen zwischen jedem aufeinanderfolgenden Bild eine deutlich messbare Änderung.
+
+Festgestellte Quelldatenabweichungen:
+
+- `hit_reaction` entspricht vollständig den manifestierten 512×512 Pixeln.
+- Bei den fünf als 444×444 beschriebenen Reihen sind nur jeweils zwei Frames exakt 444×444. Die übrigen liegen bei 443×444, 444×443 oder 443×443.
+- `BossAnimator` gleicht diese Ein-Pixel-Abweichungen über eine gemeinsame zentrierte, seitenverhältnistreue Fläche aus.
+- Die Trefferreaktion besitzt in Teilen eine schwache rechteckige Hintergrundtönung. Sie ist bereits im gelieferten Artwork vorhanden und im Treffer-Screenshot sichtbar; es wurde kein neues Artwork erzeugt oder kaschiert.
+
+Gemessene kleinste Bildänderung zwischen aufeinanderfolgenden, auf 32×32 normalisierten Frames: `idle` 0,0956; `energy_charge` 0,1285; `skull_swarm` 0,1064; `spell_blast` 0,1055; `hit_reaction` 0,1205; `death` 0,1440.
+
+## Visuelle Belege
+
+- [TV-Arena mit stabilen Spielerfarben](docs/screenshots/alpha_02b_identity_arena.png)
+- [Morvath-Trefferreaktion im Kampf](docs/screenshots/alpha_02b_hit_reaction.png)
+- [Vier aufeinanderfolgende Spell-Blast-Frames](docs/screenshots/alpha_02b_morvath_spell_frames.png)
 
 ## Tests
 
 Automatisiert unter Godot 4.7.1 geprüft:
 
-- Solo-Regression einschließlich 80 vollständiger Partien, Mittelwert 10,26 Runden
-- Zwei getrennte Spielerzustände und 120 Boss-LP
-- Unterschiedliche private Hände und Builds
-- 1/2-Bereitschaft ohne vorzeitige Aufwertung oder Schaden
-- Zwei Heldenangriffe und exakt ein gemeinsamer Bossangriff
-- Persönlicher Lebensraub und Knochenschutz
-- Doppeltipps, ungültige Aktionen und Zuschaueraktionen
-- Öffentliche HTTP-Daten ohne Hand und gesperrte HTTP-Auswahl
-- Zwei echte lokale WebSocket-Clients mit gebundener Identität
-- Verbindungsabbruch und Wiederverbindung per Sitzungstoken
-- Gruppen-Sieg und Gruppen-Niederlage
-- QR-Lobby, PC-Testmodus und bestehendes Kampf-Feedback
-- Sechs-Spieler-Datenmodell bei auf zwei begrenzter Alpha-Lobby
+- Solo-Regression und 80 vollständige Balancing-Simulationen, weiterhin 10,26 Runden im Mittel
+- Zwei-Spieler-Koop, getrennte Builds, Hände und Kampfdetails
+- stabile blaue/violette Identitäten einschließlich Wiederverbindung
+- vollständige Wirkungs-, Auslöse- und Bedingungstexte aus dem `GameState`
+- tatsächliche Fähigkeitstrigger aus dem bestätigten Kampfprotokoll
+- alle Manifestdateien, Framezahlen, FPS, Alpha, Größen, Duplikate und Bildänderungen
+- kontinuierlicher Idle-Loop
+- vollständige Treffer-, Auflade-, Spell-Blast-, Skull-Swarm- und Todessequenzen
+- Reihenfolge: zwei Angriffe, zwei Trefferreaktionen, eine Aufladung, ein Bossangriff
+- Rundenbarriere bis nach der Animation
+- unveränderte Kampfwerte während sämtlicher Animationen
+- Sieg ohne Boss-Gegenangriff, Niederlage, Doppeltippschutz
+- QR-Lobby, Zwei-WebSocket-Clients, Zuschauer und Wiederverbindung
+- PC-Testmodus ohne irreführenden Netzwerkfehler
 
 ```powershell
 godot --headless --path . --script res://tests/test_game_state.gd
 godot --headless --path . --script res://tests/test_coop_game_state.gd
 godot --headless --path . --script res://tests/test_web_controller.gd
 godot --headless --path . --script res://tests/test_connection_lobby.gd
+godot --headless --path . --script res://tests/test_boss_animator.gd
+godot --headless --path . --script res://tests/test_animation_sync.gd
 godot --headless --path . --script res://tests/test_combat_feedback.gd
 godot --headless --path . --script res://tests/test_main_scene.gd
 ```
 
-## Screenshots
+## Grenzen von Alpha 0.2B
 
-- [Koop-TV-Arena](docs/screenshots/alpha_02a_coop_arena.png)
-- [Zugeordneter Koop-Angriff](docs/screenshots/alpha_02a_coop_attack.png)
-
-## Grenzen von Alpha 0.2A
-
-- Maximal zwei aktive Smartphone-Spieler; weitere Geräte sind Zuschauer
-- Beide Spieler verwenden den Aschenritter
-- Keine neuen Bosse, Helden, Fähigkeiten, Relikte oder Animationssysteme
+- Maximal zwei aktive Smartphone-Spieler; weitere Geräte bleiben Zuschauer
+- Beide Spieler verwenden weiterhin den Aschenritter
+- Keine neuen Bosse, Helden, Fähigkeiten, Relikte oder Spielmechaniken
+- HTTP und WebSocket bleiben für das lokale WLAN unverschlüsselt
 - Reine IPv6-Netze werden noch nicht unterstützt

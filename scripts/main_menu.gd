@@ -64,7 +64,7 @@ func _build_home() -> Control:
 	column.add_child(logo)
 
 	var subtitle := Label.new()
-	subtitle.text = "ALPHA 0.2A  ·  CO-OP FOUNDATION"
+	subtitle.text = "ALPHA 0.2B  ·  HERO IDENTITY & BOSS ANIMATION"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 18)
 	subtitle.add_theme_color_override("font_color", UIStyle.CYAN)

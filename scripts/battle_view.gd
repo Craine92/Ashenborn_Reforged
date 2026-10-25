@@ -25,7 +25,7 @@ var _end_panel: PanelContainer
 var _end_title: Label
 var _boss_visual: Control
 var _boss_portrait: TextureRect
-var _boss_attack_pose: TextureRect
+var _boss_animator: BossAnimator
 var _boss_fx: TextureRect
 var _boss_damage_label: Label
 var _player_panel: PanelContainer
@@ -49,6 +49,7 @@ var _current_round := -1
 var _can_select := false
 var _pc_test_mode := false
 var _connection_available := false
+var _smartphone_connected := false
 var _displayed_boss_hp := -1
 var _displayed_player_hp := -1
 var _displayed_player_hps: Dictionary = {}
@@ -66,6 +67,7 @@ func set_pc_test_mode(enabled: bool) -> void:
 	_pc_test_mode = enabled
 	if is_node_ready():
 		_apply_view_mode()
+		_refresh_connection_button()
 
 
 func is_pc_test_mode() -> bool:
@@ -74,25 +76,30 @@ func is_pc_test_mode() -> bool:
 
 func set_connection_info(url: String, web_ok: bool) -> void:
 	_connection_available = web_ok and not url.is_empty()
-	if _connection_available:
-		_connection_button.text = "○  VERBINDUNG"
-		_connection_button.tooltip_text = "%s\nQR-Code und Status anzeigen" % url
-	else:
-		_connection_button.text = "!  VERBINDUNGSFEHLER"
-		_connection_button.add_theme_color_override("font_color", UIStyle.RED)
+	_connection_button.tooltip_text = "%s\nQR-Code und Status anzeigen" % url if _connection_available else "Netzwerkserver oder WLAN-Adresse nicht verfügbar"
+	_refresh_connection_button()
 
 
 func set_smartphone_connected(connected: bool) -> void:
-	if not _connection_available:
-		_connection_button.text = "!  VERBINDUNGSFEHLER"
-		_connection_button.add_theme_color_override("font_color", UIStyle.RED)
+	_smartphone_connected = connected
+	_refresh_connection_button()
+
+
+func _refresh_connection_button() -> void:
+	if not is_instance_valid(_connection_button):
 		return
-	if connected:
-		_connection_button.text = "●  SMARTPHONE"
+	if _pc_test_mode:
+		_connection_button.text = "PC-TEST · OFFLINE BEREIT"
+		_connection_button.add_theme_color_override("font_color", UIStyle.CYAN)
+	elif not _connection_available:
+		_connection_button.text = "!  NETZWERKFEHLER"
+		_connection_button.add_theme_color_override("font_color", UIStyle.RED)
+	elif _smartphone_connected:
+		_connection_button.text = "●  SMARTPHONE VERBUNDEN"
 		_connection_button.add_theme_color_override("font_color", Color("55c271"))
 	else:
-		_connection_button.text = "○  VERBINDUNG"
-		_connection_button.add_theme_color_override("font_color", UIStyle.TEXT)
+		_connection_button.text = "○  KEIN SMARTPHONE"
+		_connection_button.add_theme_color_override("font_color", UIStyle.GOLD)
 
 
 func set_state(state: Dictionary) -> void:
@@ -251,21 +258,10 @@ func _build_encounter() -> Control:
 	_boss_visual.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_boss_visual.pivot_offset = Vector2(125, 105)
 	boss_group.add_child(_boss_visual)
-	_boss_portrait = TextureRect.new()
-	_boss_portrait.texture = load("res://assets/bosses/morvath/portrait.png")
-	_boss_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_boss_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_boss_animator = BossAnimator.new()
+	_boss_portrait = _boss_animator
 	_boss_portrait.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_boss_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_boss_visual.add_child(_boss_portrait)
-	_boss_attack_pose = TextureRect.new()
-	_boss_attack_pose.texture = load("res://assets/bosses/morvath/phase_3_overlay1.png")
-	_boss_attack_pose.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_boss_attack_pose.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_boss_attack_pose.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_boss_attack_pose.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_boss_attack_pose.modulate.a = 0.0
-	_boss_visual.add_child(_boss_attack_pose)
 	_boss_fx = TextureRect.new()
 	_boss_fx.texture = load("res://assets/bosses/morvath/fx_runecircle.png")
 	_boss_fx.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -548,10 +544,11 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	shake.tween_property(_boss_visual, "position", boss_origin - Vector2(10, 0), 0.055)
 	shake.tween_property(_boss_visual, "position", boss_origin + Vector2(6, 0), 0.05)
 	shake.tween_property(_boss_visual, "position", boss_origin, 0.06)
-	await get_tree().create_timer(0.26).timeout
+	await _boss_animator.play_once("hit_reaction")
 	if sequence != _sequence_id:
 		return
 	_attacker_card.visible = false
+	_show_triggered_effects(combat.get("triggered_effects", []), "")
 	if healing > 0:
 		_show_status("LEBENSRAUB  +%d LP" % healing, Color("61d884"))
 		_show_value(_hero_heal_label, "+%d" % healing, Vector2(-18, -20))
@@ -562,21 +559,20 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 			return
 
 	if state["phase"] == "victory":
+		_show_status("MORVATH ZERFÄLLT", UIStyle.GOLD)
+		await _boss_animator.play_death()
+		if sequence != _sequence_id:
+			return
 		_finish_outcome("victory", sequence)
 		return
 
+	_show_status("MORVATH LÄDT SEINE MAGIE", UIStyle.RED.lightened(0.2))
+	await _boss_animator.play_once("energy_charge", false)
+	if sequence != _sequence_id:
+		return
 	_show_status("MORVATH SCHLÄGT ZURÜCK", UIStyle.RED.lightened(0.2))
 	combat_audio.emit("boss_attack")
-	_boss_fx.texture = load("res://assets/bosses/morvath/fx_skulls.png")
-	_boss_fx.modulate = Color(1, 1, 1, 0)
-	_boss_attack_pose.modulate = Color(1, 1, 1, 0)
-	var windup := _new_tween()
-	windup.set_parallel(true)
-	windup.tween_property(_boss_attack_pose, "modulate:a", 1.0, 0.16)
-	windup.tween_property(_boss_portrait, "modulate:a", 0.18, 0.16)
-	windup.tween_property(_boss_fx, "modulate:a", 0.92, 0.16)
-	windup.tween_property(_boss_visual, "scale", Vector2(1.08, 1.08), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	await windup.finished
+	await _boss_animator.play_once("skull_swarm" if int(state.get("round", 1)) % 2 == 0 else "spell_blast")
 	if sequence != _sequence_id:
 		return
 
@@ -602,8 +598,6 @@ func _play_combat_sequence(state: Dictionary, old_boss_hp: int, old_player_hp: i
 	var recover := _new_tween()
 	recover.set_parallel(true)
 	recover.tween_property(_player_panel, "modulate", Color.WHITE, 0.10)
-	recover.tween_property(_boss_attack_pose, "modulate:a", 0.0, 0.10)
-	recover.tween_property(_boss_portrait, "modulate:a", 1.0, 0.10)
 	recover.tween_property(_boss_fx, "modulate:a", 0.0, 0.10)
 	recover.tween_property(_boss_visual, "scale", Vector2.ONE, 0.10)
 	await recover.finished
@@ -627,11 +621,11 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 			return
 		var upgrade: Dictionary = attack.get("selected_upgrade", {})
 		var player_name := String(attack.get("display_name", "ASCHENRITTER")).to_upper()
+		var player_color := _player_color_for_id(state.get("players", []), String(attack.get("player_id", "")))
 		var damage := int(attack.get("hero_damage", 0))
 		combat_sequence_started.emit(String(upgrade.get("name", "Upgrade")), damage, 0)
 		_attacker_art.texture = load(HeroDatabase.ASH_KNIGHT["artwork"])
-		var rarity_color: Color = AbilityDatabase.RARITY_COLORS.get(upgrade.get("rarity", "common"), UIStyle.CYAN)
-		_attacker_card.add_theme_stylebox_override("panel", UIStyle.card_box(rarity_color, true, false))
+		_attacker_card.add_theme_stylebox_override("panel", UIStyle.card_box(player_color, true, false))
 		_attacker_name.text = "%s · ASCHENRITTER" % player_name
 		var viewport_size := get_viewport_rect().size
 		var start := Vector2(viewport_size.x * 0.08, viewport_size.y * 0.22)
@@ -641,7 +635,7 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 		_attacker_card.modulate = Color(1, 1, 1, 0)
 		_attacker_card.visible = true
 		var rank_text := "FREIGESCHALTET" if upgrade.get("unlocked", false) else "RANG %d" % int(upgrade.get("acquired_rank", 1))
-		_show_status("%s · %s %s" % [player_name, String(upgrade.get("name", "UPGRADE")).to_upper(), rank_text], rarity_color)
+		_show_status("%s · %s %s" % [player_name, String(upgrade.get("name", "UPGRADE")).to_upper(), rank_text], player_color)
 		var reveal := _new_tween()
 		reveal.set_parallel(true)
 		reveal.tween_property(_attacker_card, "modulate:a", 1.0, 0.12)
@@ -663,8 +657,11 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 		impact.set_parallel(true)
 		impact.tween_method(_set_boss_health_float, float(boss_before), float(boss_after), 0.20)
 		impact.tween_property(_attacker_card, "modulate:a", 0.0, 0.18)
-		await impact.finished
+		await _boss_animator.play_once("hit_reaction")
+		if sequence != _sequence_id:
+			return
 		_attacker_card.visible = false
+		_show_triggered_effects(attack.get("triggered_effects", []), player_name)
 		var healing := int(attack.get("healing", 0))
 		if healing > 0:
 			_show_status("%s · LEBENSRAUB +%d LP" % [player_name, healing], Color("61d884"))
@@ -672,19 +669,21 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 			await get_tree().create_timer(0.12).timeout
 
 	if state.get("phase", "") == "victory":
+		_show_status("MORVATH ZERFÄLLT", UIStyle.GOLD)
+		await _boss_animator.play_death()
+		if sequence != _sequence_id:
+			return
 		_finish_outcome("victory", sequence)
+		return
+	_show_status("MORVATH LÄDT SEINE MAGIE", UIStyle.RED.lightened(0.2))
+	await _boss_animator.play_once("energy_charge", false)
+	if sequence != _sequence_id:
 		return
 	_show_status("MORVATH SCHLÄGT EINMAL ZURÜCK", UIStyle.RED.lightened(0.2))
 	combat_audio.emit("boss_attack")
-	_boss_attack_pose.modulate = Color(1, 1, 1, 0)
-	_boss_fx.texture = load("res://assets/bosses/morvath/fx_skulls.png")
-	_boss_fx.modulate = Color(1, 1, 1, 0)
-	var windup := _new_tween()
-	windup.set_parallel(true)
-	windup.tween_property(_boss_attack_pose, "modulate:a", 1.0, 0.16)
-	windup.tween_property(_boss_portrait, "modulate:a", 0.18, 0.16)
-	windup.tween_property(_boss_fx, "modulate:a", 0.92, 0.16)
-	await windup.finished
+	await _boss_animator.play_once("skull_swarm" if int(state.get("round", 1)) % 2 == 0 else "spell_blast")
+	if sequence != _sequence_id:
+		return
 	for target: Dictionary in combat.get("boss_targets", []):
 		if sequence != _sequence_id:
 			return
@@ -703,8 +702,6 @@ func _play_coop_combat_sequence(state: Dictionary, old_boss_hp: int) -> void:
 		await flash.finished
 	var recover := _new_tween()
 	recover.set_parallel(true)
-	recover.tween_property(_boss_attack_pose, "modulate:a", 0.0, 0.10)
-	recover.tween_property(_boss_portrait, "modulate:a", 1.0, 0.10)
 	recover.tween_property(_boss_fx, "modulate:a", 0.0, 0.10)
 	await recover.finished
 	if state.get("phase", "") == "defeat":
@@ -760,16 +757,24 @@ func _update_player_displays(state_players: Array) -> void:
 	var primary: Dictionary = state_players[0]
 	_primary_display_player_id = String(primary.get("id", GameState.DEFAULT_PLAYER_ID))
 	var primary_hero: Dictionary = primary.get("hero", {})
+	var primary_color := Color(String(primary.get("color", "4b91e2")))
 	_hero_name_label.text = "%s · %s" % [String(primary.get("display_name", "Spieler 1")).to_upper(), String(primary_hero.get("name", "Aschenritter")).to_upper()]
+	_hero_name_label.add_theme_color_override("font_color", primary_color)
+	_player_panel.add_theme_stylebox_override("panel", UIStyle.box(UIStyle.PANEL_SOFT, primary_color.darkened(0.2), 2, 10))
 	_player_bar.max_value = primary.get("max_hp", 20)
+	_player_bar.add_theme_stylebox_override("fill", UIStyle.box(primary_color.darkened(0.16), primary_color.lightened(0.15), 1, 6))
 	_update_active_abilities(primary_hero.get("abilities", []))
 	_player_status_label.text = _player_status(primary)
 	_player_status_label.add_theme_color_override("font_color", _player_status_color(primary))
 	_secondary_player_panel.visible = state_players.size() > 1
 	if state_players.size() > 1:
 		var secondary: Dictionary = state_players[1]
+		var secondary_color := Color(String(secondary.get("color", "a868e8")))
 		_secondary_name_label.text = "%s · ASCHENRITTER" % String(secondary.get("display_name", "Spieler 2")).to_upper()
+		_secondary_name_label.add_theme_color_override("font_color", secondary_color)
+		_secondary_player_panel.add_theme_stylebox_override("panel", UIStyle.box(UIStyle.PANEL_SOFT, secondary_color.darkened(0.2), 2, 10))
 		_secondary_bar.max_value = secondary.get("max_hp", 20)
+		_secondary_bar.add_theme_stylebox_override("fill", UIStyle.box(secondary_color.darkened(0.16), secondary_color.lightened(0.15), 1, 6))
 		_secondary_abilities_label.text = _abilities_text(secondary.get("hero", {}).get("abilities", []))
 		_secondary_status_label.text = _player_status(secondary)
 		_secondary_status_label.add_theme_color_override("font_color", _player_status_color(secondary))
@@ -788,7 +793,7 @@ func _player_status_color(player: Dictionary) -> Color:
 		return UIStyle.RED
 	if not player.get("connected", false):
 		return UIStyle.GOLD
-	return Color("55c271") if player.get("ready", false) else UIStyle.CYAN
+	return Color(String(player.get("color", "55cfe4")))
 
 
 func _abilities_text(abilities: Array) -> String:
@@ -802,6 +807,20 @@ func _abilities_text(abilities: Array) -> String:
 
 func _update_active_abilities(abilities: Array) -> void:
 	_abilities_label.text = _abilities_text(abilities)
+
+
+func _show_triggered_effects(effects: Array, player_name: String) -> void:
+	if effects.is_empty():
+		return
+	var prefix := "" if player_name.is_empty() else player_name + " · "
+	_show_status(prefix + " · ".join(PackedStringArray(effects)), UIStyle.CYAN)
+
+
+func _player_color_for_id(state_players: Array, player_id: String) -> Color:
+	for player: Dictionary in state_players:
+		if player.get("id", "") == player_id:
+			return Color(String(player.get("color", "55cfe4")))
+	return UIStyle.CYAN
 
 
 func _show_value(label: Label, value: String, start_offset := Vector2.ZERO) -> void:
@@ -858,8 +877,8 @@ func _reset_combat_visuals() -> void:
 	_kill_active_tweens()
 	_attacker_card.visible = false
 	_boss_fx.modulate.a = 0.0
-	_boss_attack_pose.modulate.a = 0.0
 	_boss_portrait.modulate = Color.WHITE
+	_boss_animator.cancel_and_idle()
 	_boss_visual.scale = Vector2.ONE
 	_player_panel.modulate = Color.WHITE
 	_secondary_player_panel.modulate = Color.WHITE

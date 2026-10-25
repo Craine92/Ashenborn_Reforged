@@ -9,6 +9,10 @@ const BOSS_DAMAGE := 2
 const HAND_SIZE := 3
 const MAX_SUPPORTED_PLAYERS := 6
 const DEFAULT_PLAYER_ID := "player_1"
+const PLAYER_COLORS := {
+	"player_1": "4b91e2",
+	"player_2": "a868e8",
+}
 
 var hero: Dictionary = HeroDatabase.default_hero()
 var players: Dictionary = {}
@@ -23,7 +27,7 @@ var ability_ranks: Dictionary = {}
 var combat_result: Dictionary = {}
 var result_text := "Wähle ein Upgrade."
 var phase := "menu"
-var resolution_delay := 1.55
+var resolution_delay := 4.0
 
 var _rng := RandomNumberGenerator.new()
 var _game_sequence := 0
@@ -164,6 +168,7 @@ func get_private_snapshot(player_id: String) -> Dictionary:
 	snapshot["player_max_hp"] = private_player["max_hp"]
 	snapshot["hand"] = private_player["hand"]
 	snapshot["selected_upgrade"] = private_player["selected_upgrade"]
+	snapshot["combat"] = _private_combat(player_id)
 	snapshot["can_select"] = phase == "awaiting_selection" and player.get("alive", false) and player.get("connected", false) and not player.get("ready", false)
 	return snapshot
 
@@ -262,6 +267,7 @@ func _new_player(player_id: String, index: int) -> Dictionary:
 	return {
 		"id": player_id,
 		"display_name": "Spieler %d" % display_number,
+		"color": PLAYER_COLORS.get(player_id, "55cfe4"),
 		"hero": player_hero,
 		"hp": int(player_hero["max_hp"]),
 		"ability_ranks": {},
@@ -318,6 +324,15 @@ func _resolve_round() -> void:
 		var healing_power := AbilityDatabase.effect_value("life_steal", "healing", _rank(player, "life_steal"))
 		var healing := mini(healing_power, int(player["hero"]["max_hp"]) - hp_before)
 		player["hp"] = hp_before + healing
+		var triggered_effects: Array[String] = []
+		if conditional_bonus > 0:
+			triggered_effects.append("BLUTRAUSCH +%d SCHADEN" % conditional_bonus)
+		if rune_damage > 0:
+			triggered_effects.append("RUNENBLITZ +%d SCHADEN" % rune_damage)
+		if soul_damage > 0:
+			triggered_effects.append("SEELENFEUER +%d SCHADEN" % soul_damage)
+		if healing > 0:
+			triggered_effects.append("LEBENSRAUB +%d LP" % healing)
 		attacks.append({
 			"player_id": player_id,
 			"display_name": player["display_name"],
@@ -333,6 +348,7 @@ func _resolve_round() -> void:
 			"hero_hp_after_heal": int(player["hp"]),
 			"boss_hp_before": boss_before,
 			"boss_hp_after": boss_hp,
+			"triggered_effects": triggered_effects,
 		})
 		if boss_hp <= 0:
 			break
@@ -385,7 +401,7 @@ func _resolve_round() -> void:
 	result_text = "Die Aschenritter greifen an. Morvath schlägt einmal zurück."
 	_emit_state()
 	var sequence := _game_sequence
-	var delay := resolution_delay if active_player_ids.size() == 1 else maxf(resolution_delay, 2.4)
+	var delay := resolution_delay if active_player_ids.size() == 1 else maxf(resolution_delay, 5.0)
 	if delay <= 0.0:
 		_finish_round(sequence)
 	else:
@@ -424,6 +440,7 @@ func _serialize_player(player: Dictionary, include_hand: bool) -> Dictionary:
 	var result := {
 		"id": player["id"],
 		"display_name": player["display_name"],
+		"color": player["color"],
 		"hp": player["hp"],
 		"max_hp": player_hero["max_hp"],
 		"connected": player["connected"],
@@ -437,12 +454,39 @@ func _serialize_player(player: Dictionary, include_hand: bool) -> Dictionary:
 			"max_hp": player_hero["max_hp"],
 			"base_attack": player_hero["base_attack"],
 			"artwork": player_hero["artwork"],
-			"abilities": AbilityDatabase.active_abilities(player["ability_ranks"]),
+			"abilities": AbilityDatabase.active_abilities(player["ability_ranks"], {
+				"round": round_number,
+				"hp": player["hp"],
+				"max_hp": player_hero["max_hp"],
+				"hero_attack_count": player["hero_attack_count"],
+			}),
 		},
 	}
 	if include_hand:
 		result["hand"] = _duplicate_dictionary_array(player.get("hand", []))
 	return result
+
+
+func _private_combat(player_id: String) -> Dictionary:
+	if combat_result.is_empty():
+		return {}
+	var private_result := {"boss_attack_count": combat_result.get("boss_attack_count", 0)}
+	var own_attacks: Array[Dictionary] = []
+	for attack: Dictionary in combat_result.get("attacks", []):
+		if attack.get("player_id", "") == player_id:
+			own_attacks.append(attack.duplicate(true))
+	var own_targets: Array[Dictionary] = []
+	for target: Dictionary in combat_result.get("boss_targets", []):
+		if target.get("player_id", "") == player_id:
+			own_targets.append(target.duplicate(true))
+	private_result["attacks"] = own_attacks
+	private_result["boss_targets"] = own_targets
+	if not own_attacks.is_empty():
+		private_result.merge(own_attacks[0], true)
+	if not own_targets.is_empty():
+		private_result["boss_damage"] = own_targets[0].get("boss_damage", 0)
+		private_result["blocked"] = own_targets[0].get("blocked", 0)
+	return private_result
 
 
 func _all_reachable_players_ready() -> bool:

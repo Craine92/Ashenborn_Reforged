@@ -27,6 +27,7 @@ func _test_waits_for_both_and_resolves_once() -> void:
 	game.force_hand_for_tests(["rune_bolt", "blood_frenzy", "soul_fire"], "player_2")
 	var private_one := game.get_private_snapshot("player_1")
 	var private_two := game.get_private_snapshot("player_2")
+	_check(private_one["player"]["color"] == "4b91e2" and private_two["player"]["color"] == "a868e8", "Spieler 1 bleibt blau und Spieler 2 violett gekennzeichnet")
 	_check(private_one["hand"][0]["id"] == "ash_blade" and private_two["hand"][0]["id"] == "rune_bolt", "Jeder Spieler erhält seine eigene private Hand")
 	_check(game.get_public_snapshot()["hand"].is_empty() and not JSON.stringify(game.get_public_snapshot()).contains("artwork_url"), "Öffentlicher Zustand enthält keine privaten Angebote")
 	_check(game.select_upgrade("player_1", 0, "web"), "Spieler 1 kann sein Upgrade vormerken")
@@ -38,6 +39,8 @@ func _test_waits_for_both_and_resolves_once() -> void:
 	_check(game.combat_result["attacks"].size() == 2 and game.combat_result["boss_attack_count"] == 1, "Zwei Heldenangriffe führen zu genau einem gemeinsamen Bossangriff")
 	_check(game.players["player_1"]["hp"] == 18 and game.players["player_2"]["hp"] == 18, "Morvath trifft beide lebenden Helden einmal")
 	_check(game.players["player_1"]["ability_ranks"].get("ash_blade", 0) == 1 and game.players["player_2"]["ability_ranks"].get("rune_bolt", 0) == 1, "Jeder Held erhält exakt sein eigenes Upgrade")
+	var player_two_combat: Dictionary = game.get_private_snapshot("player_2")["combat"]
+	_check(player_two_combat["attacks"].size() == 1 and player_two_combat["attacks"][0]["player_id"] == "player_2", "Privater Kampfstatus enthält nur den eigenen Build-Auslöser")
 	game.free()
 
 

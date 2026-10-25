@@ -36,15 +36,16 @@ func _run() -> void:
 	if "--controller-preview" in OS.get_cmdline_user_args():
 		await create_timer(30.0).timeout
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-battle.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02a_coop_arena.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02b_identity_arena.png"))
 	game.select_upgrade("player_1", 0, "capture")
 	game.select_upgrade("player_2", 0, "capture")
-	for _frame in 90:
-		if battle.get("_attacker_card").modulate.a >= 0.95:
+	var boss_animator: BossAnimator = battle.get("_boss_animator")
+	for _frame in 180:
+		if boss_animator.current_animation() == "hit_reaction" and boss_animator.current_frame() >= 2:
 			break
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-attack-intro.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02a_coop_attack.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_02b_hit_reaction.png"))
 	for _frame in 90:
 		if battle.get("_boss_damage_label").modulate.a >= 0.5:
 			break

@@ -44,6 +44,7 @@ func _run() -> void:
 	await process_frame
 	_check(battle.is_pc_test_mode() and battle.get("_hand_section").visible, "PC-Testmodus zeigt die private Hand als markierte Testansicht")
 	_check(battle.get("_test_mode_label").text.contains("PC-TESTANSICHT"), "Test-Hand ist ausdrücklich als PC-Testansicht gekennzeichnet")
+	_check(battle.get("_connection_button").text.contains("PC-TEST") and not battle.get("_connection_button").text.contains("FEHLER"), "Offline-PC-Test wird nicht irreführend als Netzwerkfehler angezeigt")
 	_check(not lobby.visible and battle.visible, "OHNE SMARTPHONE TESTEN startet den PC-Testmodus")
 	_check(game.phase == "awaiting_selection" and game.hand.size() == 3 and game.hero["name"] == "Aschenritter", "Solo-Raid beginnt mit Held und drei Upgrades")
 	battle.connection_menu_requested.emit()

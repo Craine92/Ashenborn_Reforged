@@ -13,6 +13,7 @@ func _run() -> void:
 	_test_ability_data_and_offers()
 	_test_stacking_and_max_rank()
 	_test_authoritative_effects()
+	_test_authoritative_build_tracking()
 	_test_round_double_tap_victory_and_defeat()
 	_test_solo_duration()
 	if _failures.is_empty():
@@ -95,7 +96,10 @@ func _test_authoritative_effects() -> void:
 	game.select_upgrade(0)
 	_check(game.combat_result["hero_damage"] == 22, "Basisangriff, Aschenklinge, Blutrausch, Runenblitz und Seelenfeuer addieren sich exakt")
 	_check(game.boss_hp == 38, "Zusatzschaden wird genau einmal auf Morvath angewendet")
+	var triggers: Array = game.combat_result["triggered_effects"]
+	_check(triggers.has("BLUTRAUSCH +5 SCHADEN") and triggers.has("RUNENBLITZ +4 SCHADEN") and triggers.has("SEELENFEUER +7 SCHADEN"), "Ausgelöste Fähigkeiten werden aus dem bestätigten Kampfergebnis gemeldet")
 	game.free()
+
 
 	game = _new_game(31)
 	game.set_ability_rank_for_tests("life_steal", 1)
@@ -127,6 +131,31 @@ func _test_authoritative_effects() -> void:
 	game.force_hand_for_tests(["ash_blade", "life_steal", "rune_bolt"])
 	game.select_upgrade(0)
 	_check(game.combat_result["blocked"] == 1 and game.combat_result["boss_damage"] == 1, "Knochenschutz Rang 3 reduziert auch ungerade Bossangriffe um 1")
+	game.free()
+
+
+func _test_authoritative_build_tracking() -> void:
+	var game := _new_game(34)
+	game.set_ability_rank_for_tests("ash_blade", 2)
+	game.set_ability_rank_for_tests("rune_bolt", 1)
+	game.set_ability_rank_for_tests("blood_frenzy", 1)
+	game.set_ability_rank_for_tests("soul_fire", 1)
+	game.set_round_for_tests(4)
+	game.set_counters_for_tests(4, 0)
+	game.set_health_for_tests(60, 9)
+	var abilities: Array = game.get_private_snapshot("player_1")["player"]["hero"]["abilities"]
+	var by_id := {}
+	for ability: Dictionary in abilities:
+		by_id[ability["id"]] = ability
+	_check(by_id["ash_blade"]["effect_text"] == "Dauerhaft +2 Angriff.", "Build-Menü zeigt die tatsächliche Aschenklingenwirkung")
+	_check(by_id["rune_bolt"]["trigger_text"] == "Nächste Auslösung: Runde 6", "Runenblitz berechnet seine nächste Runde aus dem GameState")
+	_check(by_id["soul_fire"]["trigger_text"] == "Nächste Auslösung in 2 Angriffen", "Seelenfeuer berechnet verbleibende Angriffe aus dem persönlichen Zähler")
+	_check(by_id["blood_frenzy"]["condition_met"] and by_id["blood_frenzy"]["trigger_text"].contains("AKTIV"), "Blutrausch meldet die aktuell erfüllte Lebensbedingung")
+	game.set_health_for_tests(60, 12)
+	abilities = game.get_private_snapshot("player_1")["player"]["hero"]["abilities"]
+	for ability: Dictionary in abilities:
+		if ability["id"] == "blood_frenzy":
+			_check(not ability["condition_met"] and ability["trigger_text"].contains("nicht aktiv"), "Blutrausch aktualisiert den Bedingungsstatus nach Lebensänderung")
 	game.free()
 
 

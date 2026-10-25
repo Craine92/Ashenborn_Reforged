@@ -183,7 +183,11 @@ func _handle_http_request(peer: StreamPeerTCP, request: String) -> void:
 
 
 func _serve_card_art(peer: StreamPeerTCP, card_id: String) -> void:
-	var card := CardDatabase.get_card(card_id)
+	var card := AbilityDatabase.get_ability(card_id)
+	if card.is_empty():
+		card = CardDatabase.get_card(card_id)
+	if card.is_empty():
+		card = HeroDatabase.get_hero(card_id)
 	if card.is_empty():
 		_send_text(peer, 404, "Bild nicht gefunden")
 		return
@@ -194,7 +198,10 @@ func _serve_card_art(peer: StreamPeerTCP, card_id: String) -> void:
 		if image == null or image.is_empty():
 			_send_text(peer, 404, "Bild nicht gefunden")
 			return
-		image.resize(360, 540, Image.INTERPOLATE_LANCZOS)
+		var scale_factor := minf(360.0 / float(image.get_width()), 540.0 / float(image.get_height()))
+		var target_width := maxi(1, roundi(float(image.get_width()) * scale_factor))
+		var target_height := maxi(1, roundi(float(image.get_height()) * scale_factor))
+		image.resize(target_width, target_height, Image.INTERPOLATE_LANCZOS)
 		bytes = image.save_jpg_to_buffer(0.82)
 		_art_cache[card_id] = bytes
 	if bytes.is_empty():
@@ -287,31 +294,32 @@ h1{font-family:Georgia,serif;font-size:16px;letter-spacing:.15em;margin:0;color:
 .card.selected{transform:translateY(-7px);border-width:4px;border-color:var(--rarity);box-shadow:0 0 0 2px #ffffff30,0 14px 30px #000e;filter:brightness(1.12)}
 .card:disabled{filter:saturate(.6) brightness(.72)}
 .card img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center center;min-height:0;background:#080c12}
-.info{position:absolute;z-index:1;left:0;right:0;bottom:0;padding:28px 7px 7px;background:linear-gradient(transparent,#090d13e8 30%,#090d13 58%);min-width:0;text-shadow:0 2px 3px #000}
-.name{display:block;min-height:2.1em;font-family:Georgia,serif;font-size:clamp(10px,2.9vw,15px);line-height:1.05;white-space:normal;overflow-wrap:anywhere}
+.info{position:absolute;z-index:1;left:0;right:0;bottom:0;padding:26px 7px 7px;background:linear-gradient(transparent,#090d13ee 25%,#090d13 52%);min-width:0;text-shadow:0 2px 3px #000}
+.name{display:block;font-family:Georgia,serif;font-size:clamp(10px,2.9vw,15px);line-height:1.05;white-space:normal;overflow-wrap:anywhere}
+.desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.25em;margin-top:3px;color:#d7dce4;font-size:clamp(8px,2.05vw,11px);line-height:1.12}
 .meta{display:flex;justify-content:space-between;gap:3px;margin-top:5px;font-size:clamp(9px,2.45vw,12px);color:var(--rarity)}
-.atk{color:var(--gold);font-weight:800}
+.rank{color:var(--gold);font-weight:800;text-align:right}
 #action{min-height:42px;display:grid;place-items:center}
 #hint{text-align:center;color:var(--cyan);font-size:13px;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #overlay{position:fixed;inset:0;background:#06080df2;display:none;place-items:center;padding:25px;text-align:center;z-index:5}
 #overlay.show{display:grid}.wait{font-family:Georgia,serif;color:var(--cyan);font-size:25px}.small{color:var(--muted);font-size:14px;margin-top:12px}
-@media(max-height:590px){main{padding:6px;gap:5px}.stat{padding:3px}.stat b{font-size:15px}#action{min-height:38px}.info{padding:22px 5px 5px}.meta{margin-top:2px}}
-@media(max-width:340px){main{padding-left:6px;padding-right:6px}h1{font-size:14px}.info{padding-left:4px;padding-right:4px}.meta{font-size:8px}.name{font-size:10px}}
+@media(max-height:590px){main{padding:6px;gap:5px}.stat{padding:3px}.stat b{font-size:15px}#action{min-height:38px}.info{padding:20px 5px 5px}.meta{margin-top:2px}.desc{-webkit-line-clamp:2}}
+@media(max-width:340px){main{padding-left:6px;padding-right:6px}h1{font-size:14px}.info{padding-left:4px;padding-right:4px}.meta{font-size:7px}.name{font-size:9px}.desc{font-size:7px}}
 </style>
 </head>
 <body><main>
 <header><h1>ASHENBORN</h1><span id="status">VERBINDE …</span></header>
-<section class="stats"><div class="stat">MORVATH<b id="boss">—</b></div><div class="stat">RUNDE<b id="round">—</b></div><div class="stat">DEIN LEBEN<b id="player">—</b></div></section>
+<section class="stats"><div class="stat">MORVATH<b id="boss">—</b></div><div class="stat">RUNDE<b id="round">—</b></div><div class="stat" id="heroName">ASCHENRITTER<b id="player">—</b></div></section>
 <section id="cards"></section><section id="action"><div id="hint">Spiel wird geladen …</div></section>
 </main><div id="overlay"><div><div class="wait" id="waitTitle">KAMPF LÄUFT</div><div class="small" id="waitText">Morvath antwortet …</div></div></div>
 <script>
 const colors={common:'#55c271',rare:'#4b91e2',epic:'#a868e8',legendary:'#e9b94c'};
-let socket,state,locked=true,lastRound=-1;
+let socket,state,locked=true,lastRound=-1,noticeUntil=0,selectedLabel='';
 const el=id=>document.getElementById(id);
-function render(s){state=s;lastRound=s.round;locked=!s.can_select;el('boss').textContent=s.boss_hp+' / '+s.boss_max_hp;el('player').textContent=s.player_hp+' / '+s.player_max_hp;el('round').textContent=s.round;
- const cards=el('cards');cards.replaceChildren();(s.hand||[]).forEach((c,i)=>{const b=document.createElement('button');b.className='card';b.style.setProperty('--rarity',colors[c.rarity]||colors.common);b.disabled=locked;b.innerHTML=`<img src="${c.artwork_url}" alt=""><span class="info"><b class="name">${c.name}</b><span class="meta"><span>${c.rarity_label}</span><span class="atk">⚔ ${c.attack}</span></span></span>`;b.onclick=()=>choose(i,b);cards.appendChild(b)});
- const ended=s.phase==='victory'||s.phase==='defeat',menu=s.phase==='menu',fighting=s.phase==='resolving';el('overlay').classList.toggle('show',ended||menu||fighting);el('waitTitle').textContent=menu?'AM PC STARTEN':ended?(s.phase==='victory'?'SIEG':'NIEDERLAGE'):'KAMPF LÄUFT';el('waitText').textContent=menu?'Wähle am Host SPIELEN.':ended?s.result:'SCHAU AUF DEN TV';el('hint').textContent=s.can_select?'KARTE ANTIPPEN':(s.result||'BITTE WARTEN')}
-function choose(index,button){if(locked)return;locked=true;button.classList.add('selected');document.querySelectorAll('.card').forEach(x=>x.disabled=true);el('waitTitle').textContent='KAMPF LÄUFT';el('waitText').textContent='SCHAU AUF DEN TV';el('overlay').classList.add('show');if(socket&&socket.readyState===1)socket.send(JSON.stringify({type:'select',index}));else fetch('/api/select?index='+index).then(r=>r.json()).then(render)}
+function render(s){state=s;lastRound=s.round;locked=!s.can_select;el('boss').textContent=s.boss_hp+' / '+s.boss_max_hp;el('player').textContent=s.player_hp+' / '+s.player_max_hp;el('round').textContent=s.round;el('heroName').childNodes[0].nodeValue=((s.hero&&s.hero.name)||'ASCHENRITTER').toUpperCase();
+ const cards=el('cards');cards.replaceChildren();(s.hand||[]).forEach((c,i)=>{const b=document.createElement('button');b.className='card';b.style.setProperty('--rarity',colors[c.rarity]||colors.common);b.disabled=locked;b.innerHTML=`<img src="${c.artwork_url}" alt="${c.name}"><span class="info"><b class="name">${c.name}</b><span class="desc">${c.description}</span><span class="meta"><span>${c.rarity_label}</span><span class="rank">${c.rank_label}</span></span></span>`;b.onclick=()=>choose(i,b);cards.appendChild(b)});
+ const ended=s.phase==='victory'||s.phase==='defeat',menu=s.phase==='menu',fighting=s.phase==='resolving',notice=fighting&&Date.now()<noticeUntil;el('overlay').classList.toggle('show',ended||menu||fighting);el('waitTitle').textContent=menu?'AM PC STARTEN':ended?(s.phase==='victory'?'SIEG':'NIEDERLAGE'):notice?'UPGRADE ERHALTEN':'KAMPF LÄUFT';el('waitText').textContent=menu?'Wähle am Host SPIELEN.':ended?s.result:notice?selectedLabel:'SCHAU AUF DEN TV';el('hint').textContent=s.can_select?'UPGRADE ANTIPPEN':(s.result||'BITTE WARTEN');if(notice)setTimeout(()=>render(state),Math.max(10,noticeUntil-Date.now()+10))}
+function choose(index,button){if(locked)return;locked=true;const chosen=(state.hand||[])[index]||{};selectedLabel=(chosen.name||'UPGRADE')+' · '+(chosen.rank_label||'');noticeUntil=Date.now()+550;button.classList.add('selected');document.querySelectorAll('.card').forEach(x=>x.disabled=true);el('waitTitle').textContent='UPGRADE ERHALTEN';el('waitText').textContent=selectedLabel;el('overlay').classList.add('show');if(socket&&socket.readyState===1)socket.send(JSON.stringify({type:'select',index}));else fetch('/api/select?index='+index).then(r=>r.json()).then(render)}
 function connect(){socket=new WebSocket('ws://'+location.hostname+':__WS_PORT__');socket.onopen=()=>{el('status').textContent='VERBUNDEN';el('status').style.color='#55c271'};socket.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='state')render(m.state)};socket.onclose=()=>{el('status').textContent='NEUVERBINDUNG …';el('status').style.color='#e4b95f';setTimeout(connect,1200)}}
 fetch('/api/state').then(r=>r.json()).then(render);connect();
 </script></body></html>"""

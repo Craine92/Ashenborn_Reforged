@@ -4,8 +4,9 @@ extends Button
 var card_index := -1
 var _art: TextureRect
 var _name_label: Label
+var _description_label: Label
 var _rarity_label: Label
-var _attack_label: Label
+var _rank_label: Label
 var _rarity_color := UIStyle.CYAN
 var _selected := false
 
@@ -20,17 +21,18 @@ func _init() -> void:
 func set_card(index: int, card: Dictionary, enabled: bool) -> void:
 	card_index = index
 	_name_label.text = card.get("name", "Unbekannt")
+	_description_label.text = card.get("description", "")
 	_rarity_label.text = card.get("rarity_label", "")
-	_attack_label.text = "ANGRIFF  %d" % int(card.get("attack", 0))
-	var full_card := CardDatabase.get_card(card.get("id", ""))
-	if not full_card.is_empty():
-		_art.texture = load(full_card["artwork"])
+	_rank_label.text = card.get("rank_label", "RANG 1")
+	var full_ability := AbilityDatabase.get_ability(card.get("id", ""))
+	if not full_ability.is_empty():
+		_art.texture = load(full_ability["artwork"])
 	var rarity: String = card.get("rarity", "common")
-	_rarity_color = CardDatabase.RARITY_COLORS.get(rarity, UIStyle.CYAN)
+	_rarity_color = AbilityDatabase.RARITY_COLORS.get(rarity, UIStyle.CYAN)
 	_rarity_label.add_theme_color_override("font_color", _rarity_color)
 	disabled = not enabled
 	_apply_styles()
-	tooltip_text = "%s – %s – %d Angriff" % [card.get("name", ""), card.get("rarity_label", ""), int(card.get("attack", 0))]
+	tooltip_text = "%s – %s – %s" % [card.get("name", ""), card.get("rank_label", ""), card.get("description", "")]
 
 
 func set_selected(selected: bool) -> void:
@@ -55,12 +57,12 @@ func _build() -> void:
 	var content := VBoxContainer.new()
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 7)
-	content.add_theme_constant_override("separation", 5)
+	content.add_theme_constant_override("separation", 3)
 	add_child(content)
 
 	_art = TextureRect.new()
 	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_art.custom_minimum_size = Vector2(220, 205)
+	_art.custom_minimum_size = Vector2(220, 157)
 	_art.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
@@ -70,9 +72,18 @@ func _build() -> void:
 	_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_name_label.add_theme_font_size_override("font_size", 21)
+	_name_label.add_theme_font_size_override("font_size", 19)
 	_name_label.add_theme_color_override("font_color", UIStyle.TEXT)
 	content.add_child(_name_label)
+
+	_description_label = Label.new()
+	_description_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_description_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_description_label.custom_minimum_size.y = 34
+	_description_label.add_theme_font_size_override("font_size", 12)
+	_description_label.add_theme_color_override("font_color", UIStyle.MUTED)
+	content.add_child(_description_label)
 
 	var details := HBoxContainer.new()
 	details.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -82,12 +93,12 @@ func _build() -> void:
 	_rarity_label = Label.new()
 	_rarity_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rarity_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_rarity_label.add_theme_font_size_override("font_size", 13)
+	_rarity_label.add_theme_font_size_override("font_size", 12)
 	details.add_child(_rarity_label)
 
-	_attack_label = Label.new()
-	_attack_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_attack_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_attack_label.add_theme_font_size_override("font_size", 18)
-	_attack_label.add_theme_color_override("font_color", UIStyle.GOLD)
-	details.add_child(_attack_label)
+	_rank_label = Label.new()
+	_rank_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_rank_label.add_theme_font_size_override("font_size", 13)
+	_rank_label.add_theme_color_override("font_color", UIStyle.GOLD)
+	details.add_child(_rank_label)

@@ -14,11 +14,11 @@ func _run() -> void:
 	root.add_child(_game)
 	_game.resolution_delay = 99.0
 	_game.start_game(7)
-	_game.force_hand_for_tests(["sun_champion", "ash_mage", "root_beast"])
+	_game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	_server = WebControllerServer.new()
 	root.add_child(_server)
 	_server.state_provider = Callable(_game, "get_snapshot")
-	_server.card_selected.connect(func(index: int) -> void: _game.select_card(index, "web"))
+	_server.card_selected.connect(func(index: int) -> void: _game.select_upgrade(index, "web"))
 	_game.state_changed.connect(func(_snapshot: Dictionary) -> void: _server.broadcast_state())
 	_check(_server.start(18765, 18766), "Testserver startet")
 	await create_timer(0.1).timeout
@@ -44,17 +44,19 @@ func _test_http() -> void:
 		_check(response[1] == 200, "Controller-HTML antwortet mit HTTP 200")
 		var body: String = response[3].get_string_from_utf8()
 		_check(body.contains("ASHENBORN") and body.contains("new WebSocket"), "Controller enthält Oberfläche und WebSocket-Client")
-		_check(body.contains("function choose") and body.contains("SCHAU AUF DEN TV"), "Controller sendet die Auswahl mit einem Tap und zeigt den Kampfzustand")
+		_check(body.contains("function choose") and body.contains("UPGRADE ERHALTEN") and body.contains("SCHAU AUF DEN TV"), "Controller wählt mit einem Tap und zeigt Upgrade- sowie Kampfzustand")
 		_check(not body.contains("id=\"attack\""), "Controller besitzt keinen zusätzlichen Bestätigungsbutton")
 		_check(body.contains("object-fit:contain") and not body.contains(".card img{width:100%;height:100%;object-fit:cover"), "Kartenartwork wird vollständig und unverzerrt dargestellt")
-		_check(body.contains("aspect-ratio:2/3") and body.contains("overflow-wrap:anywhere"), "Drei responsive 2:3-Karten erlauben vollständige mehrzeilige Namen")
-	error = request.request("http://127.0.0.1:18765/asset/sun_champion")
+		_check(body.contains("aspect-ratio:2/3") and body.contains("overflow-wrap:anywhere") and body.contains("c.description") and body.contains("c.rank_label"), "Drei responsive 2:3-Karten zeigen Namen, Beschreibung und Rang")
+	error = request.request("http://127.0.0.1:18765/asset/ash_blade")
 	_check(error == OK, "Kartenbild-Anfrage kann gestartet werden")
 	if error == OK:
 		var image_response: Array = await request.request_completed
 		var image_bytes: PackedByteArray = image_response[3]
 		_check(image_response[1] == 200 and image_bytes.size() > 1000, "Originalartwork wird als Controller-Bild ausgeliefert")
 		_check(image_bytes.size() < 1000000 and image_bytes[0] == 255 and image_bytes[1] == 216, "Controller-Artwork ist als schlankes JPEG optimiert")
+		var decoded := Image.new()
+		_check(decoded.load_jpg_from_buffer(image_bytes) == OK and decoded.get_width() * 3 == decoded.get_height() * 2, "Server bewahrt das ursprüngliche 2:3-Seitenverhältnis")
 	request.queue_free()
 
 
@@ -77,7 +79,7 @@ func _test_websocket() -> void:
 		if _game.phase == "resolving":
 			break
 		await process_frame
-	_check(_game.boss_hp == 20, "WebSocket-Auswahl verursacht genau einmal 10 Schaden")
+	_check(_game.boss_hp == 55 and _game.ability_ranks["ash_blade"] == 1, "WebSocket-Tipp schaltet Aschenklinge frei und verursacht genau einen Heldenangriff")
 	_check(_game.player_hp == 18, "WebSocket-Auswahl löst Morvaths Gegenschlag aus")
 	_check(_game.phase == "resolving", "Doppelte WebSocket-Pakete erzeugen keinen zweiten Angriff")
 	socket.close()

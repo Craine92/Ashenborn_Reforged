@@ -23,16 +23,16 @@ func _run() -> void:
 	for _frame in 10:
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-battle.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_014_tv_arena.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_tv_arena.png"))
 	var battle: BattleView = main.get("_battle")
-	var cards: Array = battle.get("_cards")
-	battle.call("_on_card_pressed", cards[0])
+	var game: GameState = main.get("_game")
+	game.select_upgrade(0, "capture")
 	for _frame in 90:
 		if battle.get("_attacker_card").modulate.a >= 0.95:
 			break
 		await process_frame
 	root.get_texture().get_image().save_png(OS.get_temp_dir().path_join("ashenborn-attack-intro.png"))
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_014_tv_attack.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_hero_attack.png"))
 	for _frame in 90:
 		if battle.get("_boss_damage_label").modulate.a >= 0.5:
 			break
@@ -48,7 +48,7 @@ func _run() -> void:
 	main.call("_start_battle", true)
 	for _frame in 10:
 		await process_frame
-	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_014_pc_test.png"))
+	root.get_texture().get_image().save_png(screenshot_dir.path_join("alpha_015_pc_test.png"))
 	if "--controller-preview" in OS.get_cmdline_user_args():
 		await create_timer(30.0).timeout
 	var server: WebControllerServer = main.get("_server")

@@ -1,6 +1,7 @@
 extends SceneTree
 
 var _failures: Array[String] = []
+var _simulated_average := 0.0
 
 
 func _initialize() -> void:
@@ -8,13 +9,15 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	_test_card_pool()
-	_test_rarity_weights()
-	_test_round_and_double_tap()
-	_test_victory()
-	_test_defeat()
+	_test_legacy_cards_are_preserved()
+	_test_ability_data_and_offers()
+	_test_stacking_and_max_rank()
+	_test_authoritative_effects()
+	_test_round_double_tap_victory_and_defeat()
+	_test_solo_duration()
 	if _failures.is_empty():
-		print("PASS: 25 Prüfungen der Kampf- und Kartenlogik")
+		print("SIMULATION: 80 Solo-Partien, durchschnittlich %.2f Runden" % _simulated_average)
+		print("PASS: Held, Upgrade-Angebote, Stacking, Effekte, Kampf und Solo-Balancing")
 		quit(0)
 	else:
 		for failure in _failures:
@@ -22,70 +25,177 @@ func _run() -> void:
 		quit(1)
 
 
-func _test_card_pool() -> void:
-	_check(CardDatabase.CARDS.size() == 8, "Der Kartenpool enthält genau 8 Karten")
-	var ids := {}
+func _test_legacy_cards_are_preserved() -> void:
+	_check(CardDatabase.CARDS.size() == 8, "Die acht alten Kreaturenkarten bleiben erhalten")
 	for card: Dictionary in CardDatabase.CARDS:
-		ids[card["id"]] = true
-		_check(FileAccess.file_exists(card["artwork"]), "Artwork existiert: " + card["id"])
-	_check(ids.size() == 8, "Alle Karten-IDs sind eindeutig")
+		_check(FileAccess.file_exists(card["artwork"]), "Altes Kreaturenartwork existiert: " + card["id"])
 
 
-func _test_rarity_weights() -> void:
+func _test_ability_data_and_offers() -> void:
+	_check(AbilityDatabase.ABILITIES.size() == 6, "Genau sechs Upgrade-Fähigkeiten sind definiert")
+	var ids := {}
+	for ability: Dictionary in AbilityDatabase.ABILITIES:
+		ids[ability["id"]] = true
+		_check(int(ability["max_rank"]) == 3, "Fähigkeit besitzt drei Ränge: " + ability["id"])
+		_check(FileAccess.file_exists(ability["artwork"]), "Upgrade-Artwork existiert: " + ability["id"])
+	_check(ids.size() == 6, "Alle Fähigkeits-IDs sind eindeutig")
+
+	var game := _new_game(10)
+	_check(game.hero["name"] == "Aschenritter" and game.player_hp == 20, "Partie startet mit dem Aschenritter")
+	_check(game.hand.size() == 3 and _unique_offer_count(game.hand) == 3, "Drei unterschiedliche Upgrade-Karten erscheinen")
+	_check(game.get_public_snapshot(false)["hand"].is_empty(), "Öffentlicher TV-Zustand enthält keine private Hand")
+	_check(game.get_snapshot()["hand"].size() == 3, "Privater Controller-Zustand enthält die drei Angebote")
+	game.free()
+
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 20261025
-	var counts := {"common": 0, "rare": 0, "epic": 0, "legendary": 0}
-	var draws := 50000
-	for _index in draws:
-		var card := CardDatabase.draw_card(rng)
-		counts[card["rarity"]] += 1
-	_check(absf(float(counts["common"]) / draws - 0.65) < 0.015, "Gewöhnlich-Gewichtung liegt nahe 65 %")
-	_check(absf(float(counts["rare"]) / draws - 0.25) < 0.015, "Selten-Gewichtung liegt nahe 25 %")
-	_check(absf(float(counts["epic"]) / draws - 0.09) < 0.01, "Episch-Gewichtung liegt nahe 9 %")
-	_check(absf(float(counts["legendary"]) / draws - 0.01) < 0.004, "Legendär-Gewichtung liegt nahe 1 %")
+	rng.seed = 1501
+	var counts := {"ash_blade": 0, "soul_fire": 0}
+	for _draw in 4000:
+		var offers := AbilityDatabase.draw_hand(rng, {}, 1, 3)
+		for offer: Dictionary in offers:
+			if counts.has(offer["id"]):
+				counts[offer["id"]] += 1
+	_check(counts["soul_fire"] < counts["ash_blade"] / 3, "Seelenfeuer wird deutlich seltener als gewöhnliche Fähigkeiten angeboten")
 
 
-func _new_game() -> GameState:
+func _test_stacking_and_max_rank() -> void:
+	var game := _new_game(20)
+	for expected_rank in [1, 2, 3]:
+		game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
+		_check(game.select_upgrade(0, "pc"), "Aschenklinge Rang %d kann gewählt werden" % expected_rank)
+		_check(int(game.ability_ranks.get("ash_blade", 0)) == expected_rank, "Aschenklinge erreicht exakt Rang %d" % expected_rank)
+		if game.phase == "resolving":
+			game.finish_resolution_for_tests()
+	if game.phase == "awaiting_selection":
+		_check(not _offer_ids(game.hand).has("ash_blade"), "Fähigkeit auf Rang 3 wird nicht erneut angeboten")
+	game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
+	_check(not game.select_upgrade(0, "pc"), "Erzwungenes Angebot kann Rang 3 nicht überschreiten")
+	_check(int(game.ability_ranks["ash_blade"]) == 3, "Maximalrang bleibt bei 3")
+	game.free()
+
+	game = _new_game(21)
+	game.force_hand_for_tests(["life_steal", "bone_guard", "rune_bolt"])
+	game.select_upgrade(0)
+	game.finish_resolution_for_tests()
+	_check(_offer_ids(game.hand).has("life_steal"), "Ab Runde 2 wird ein vorhandenes aufwertbares Upgrade erneut angeboten")
+	_check(_unique_offer_count(game.hand) == game.hand.size(), "Ein Angebot enthält keine doppelten Fähigkeiten")
+	game.free()
+
+
+func _test_authoritative_effects() -> void:
+	var game := _new_game(30)
+	game.set_ability_rank_for_tests("ash_blade", 2)
+	game.set_ability_rank_for_tests("rune_bolt", 2)
+	game.set_ability_rank_for_tests("blood_frenzy", 3)
+	game.set_ability_rank_for_tests("soul_fire", 2)
+	game.set_health_for_tests(60, 9)
+	game.set_round_for_tests(3)
+	game.set_counters_for_tests(2, 0)
+	game.force_hand_for_tests(["bone_guard", "life_steal", "ash_blade"])
+	game.select_upgrade(0)
+	_check(game.combat_result["hero_damage"] == 22, "Basisangriff, Aschenklinge, Blutrausch, Runenblitz und Seelenfeuer addieren sich exakt")
+	_check(game.boss_hp == 38, "Zusatzschaden wird genau einmal auf Morvath angewendet")
+	game.free()
+
+	game = _new_game(31)
+	game.set_ability_rank_for_tests("life_steal", 1)
+	game.set_health_for_tests(60, 10)
+	game.force_hand_for_tests(["life_steal", "ash_blade", "bone_guard"])
+	game.select_upgrade(0)
+	_check(game.combat_result["healing"] == 2 and game.player_hp == 10, "Lebensraub Rang 2 heilt vor dem Gegenschlag exakt 2 LP")
+	game.free()
+
+	game = _new_game(311)
+	game.set_ability_rank_for_tests("life_steal", 2)
+	game.set_health_for_tests(60, 19)
+	game.force_hand_for_tests(["ash_blade", "bone_guard", "rune_bolt"])
+	game.select_upgrade(0)
+	_check(game.combat_result["healing"] == 1 and game.combat_result["hero_hp_after_heal"] == 20, "Lebensraub wird exakt am maximalen Leben gedeckelt")
+	game.free()
+
+	game = _new_game(32)
+	game.set_ability_rank_for_tests("bone_guard", 2)
+	game.set_counters_for_tests(0, 1)
+	game.force_hand_for_tests(["ash_blade", "life_steal", "rune_bolt"])
+	game.select_upgrade(0)
+	_check(game.combat_result["blocked"] == 2 and game.combat_result["boss_damage"] == 0, "Knochenschutz Rang 2 blockt den zweiten Bossangriff vollständig")
+	game.free()
+
+	game = _new_game(33)
+	game.set_ability_rank_for_tests("bone_guard", 3)
+	game.set_counters_for_tests(0, 0)
+	game.force_hand_for_tests(["ash_blade", "life_steal", "rune_bolt"])
+	game.select_upgrade(0)
+	_check(game.combat_result["blocked"] == 1 and game.combat_result["boss_damage"] == 1, "Knochenschutz Rang 3 reduziert auch ungerade Bossangriffe um 1")
+	game.free()
+
+
+func _test_round_double_tap_victory_and_defeat() -> void:
+	var game := _new_game(40)
+	game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
+	_check(game.select_upgrade(0, "web"), "Ein Smartphone-Tipp wird angenommen")
+	_check(not game.select_upgrade(0, "web"), "Ein schneller zweiter Tipp wird abgewiesen")
+	_check(game.ability_ranks["ash_blade"] == 1 and game.boss_hp == 55 and game.player_hp == 18, "Doppeltipp erzeugt weder zweite Aufwertung noch zweiten Angriff")
+	game.finish_resolution_for_tests()
+	_check(game.round_number == 2 and game.hand.size() == 3, "Nächste Runde startet automatisch mit drei Upgrades")
+	game.free()
+
+	game = _new_game(41)
+	game.set_health_for_tests(4, 20)
+	game.force_hand_for_tests(["life_steal", "bone_guard", "rune_bolt"])
+	game.select_upgrade(1)
+	_check(game.phase == "victory" and game.boss_hp == 0 and game.player_hp == 20, "Tödlicher Heldenangriff gewinnt ohne Boss-Gegenschlag")
+	game.free()
+
+	game = _new_game(42)
+	game.set_health_for_tests(60, 2)
+	game.force_hand_for_tests(["ash_blade", "rune_bolt", "blood_frenzy"])
+	game.select_upgrade(0)
+	_check(game.phase == "defeat" and game.player_hp == 0, "Morvaths Gegenschlag kann den Aschenritter besiegen")
+	game.free()
+
+
+func _test_solo_duration() -> void:
+	var total_rounds := 0.0
+	var completed := 0
+	for seed_value in 80:
+		var game := _new_game(1000 + seed_value)
+		var chooser := RandomNumberGenerator.new()
+		chooser.seed = 9000 + seed_value
+		while game.phase == "awaiting_selection" and game.round_number <= 20:
+			game.select_upgrade(chooser.randi_range(0, game.hand.size() - 1), "simulation")
+			if game.phase == "resolving":
+				game.finish_resolution_for_tests()
+		if game.phase in ["victory", "defeat"]:
+			total_rounds += game.round_number
+			completed += 1
+		game.free()
+	var average := total_rounds / float(maxi(1, completed))
+	_simulated_average = average
+	_check(completed == 80, "Alle simulierten Solokämpfe enden mit Sieg oder Niederlage")
+	_check(average >= 8.0 and average <= 12.0, "Durchschnittlicher Solokampf dauert 8–12 Runden (%.2f)" % average)
+
+
+func _new_game(seed_value: int) -> GameState:
 	var game := GameState.new()
 	root.add_child(game)
 	game.resolution_delay = 99.0
-	game.start_game(42)
+	game.start_game(seed_value)
 	return game
 
 
-func _test_round_and_double_tap() -> void:
-	var game := _new_game()
-	_check(game.hand.size() == 3, "Eine Runde erzeugt drei Karten")
-	game.force_hand_for_tests(["ash_mage", "root_beast", "sun_champion"])
-	var old_hand := game.hand.duplicate(true)
-	_check(game.select_card(1, "pc"), "PC-Auswahl wird angenommen")
-	_check(game.boss_hp == 25, "Auswahl verursacht exakt den Kartenangriff")
-	_check(game.player_hp == 18, "Morvath verursacht exakt 2 Gegenschaden")
-	_check(not game.select_card(1, "web"), "Doppeltipp wird während der Auflösung abgewiesen")
-	_check(game.boss_hp == 25 and game.player_hp == 18, "Doppeltipp verursacht keinen weiteren Schaden")
-	game.finish_resolution_for_tests()
-	_check(game.round_number == 2 and game.hand.size() == 3, "Nächste Runde erzeugt eine neue Dreierhand")
-	_check(game.hand != old_hand or game.round_number == 2, "Alte Hand ist abgeschlossen")
-	game.queue_free()
+func _offer_ids(offers: Array[Dictionary]) -> Array[String]:
+	var ids: Array[String] = []
+	for offer: Dictionary in offers:
+		ids.append(offer["id"])
+	return ids
 
 
-func _test_victory() -> void:
-	var game := _new_game()
-	game.force_hand_for_tests(["sun_champion", "ash_mage", "root_beast"])
-	game.set_health_for_tests(10, 20)
-	game.select_card(0)
-	_check(game.phase == "victory" and game.boss_hp == 0, "Sieg wird zuverlässig erkannt")
-	_check(game.player_hp == 20, "Nach tödlichem Treffer erfolgt kein Gegenschlag")
-	game.queue_free()
-
-
-func _test_defeat() -> void:
-	var game := _new_game()
-	game.force_hand_for_tests(["ash_mage", "root_beast", "sun_champion"])
-	game.set_health_for_tests(30, 2)
-	game.select_card(0)
-	_check(game.phase == "defeat" and game.player_hp == 0, "Niederlage wird zuverlässig erkannt")
-	game.queue_free()
+func _unique_offer_count(offers: Array[Dictionary]) -> int:
+	var unique := {}
+	for offer: Dictionary in offers:
+		unique[offer["id"]] = true
+	return unique.size()
 
 
 func _check(condition: bool, message: String) -> void:

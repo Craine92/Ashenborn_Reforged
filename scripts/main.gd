@@ -33,7 +33,7 @@ func _ready() -> void:
 	_battle = BattleView.new()
 	_battle.visible = false
 	add_child(_battle)
-	_battle.card_selected.connect(func(index: int) -> void: _game.select_card(index, "pc"))
+	_battle.card_selected.connect(func(index: int) -> void: _game.select_upgrade(index, "pc"))
 	_battle.restart_requested.connect(_show_lobby)
 	_battle.menu_requested.connect(_return_to_menu)
 	_battle.connection_menu_requested.connect(_show_connection_overlay)
@@ -48,7 +48,7 @@ func _ready() -> void:
 	_server = WebControllerServer.new()
 	add_child(_server)
 	_server.state_provider = Callable(_game, "get_snapshot")
-	_server.card_selected.connect(func(index: int) -> void: _game.select_card(index, "web"))
+	_server.card_selected.connect(func(index: int) -> void: _game.select_upgrade(index, "web"))
 	_server.connection_changed.connect(_on_connection_changed)
 	_server_started = _server.start()
 	_configure_connection_views()
@@ -111,8 +111,8 @@ func _on_connection_changed(connected: bool) -> void:
 	_battle.set_smartphone_connected(connected)
 
 
-func _on_state_changed(snapshot: Dictionary) -> void:
-	_battle.set_state(snapshot)
+func _on_state_changed(_snapshot: Dictionary) -> void:
+	_battle.set_state(_game.get_public_snapshot(_battle.is_pc_test_mode()))
 	_server.broadcast_state()
 
 

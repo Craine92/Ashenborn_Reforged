@@ -45,19 +45,19 @@ func _run() -> void:
 	_check(battle.is_pc_test_mode() and battle.get("_hand_section").visible, "PC-Testmodus zeigt die private Hand als markierte Testansicht")
 	_check(battle.get("_test_mode_label").text.contains("PC-TESTANSICHT"), "Test-Hand ist ausdrücklich als PC-Testansicht gekennzeichnet")
 	_check(not lobby.visible and battle.visible, "OHNE SMARTPHONE TESTEN startet den PC-Testmodus")
-	_check(game.phase == "awaiting_selection" and game.hand.size() == 3, "Solo-Raid beginnt mit drei spielbaren Karten")
+	_check(game.phase == "awaiting_selection" and game.hand.size() == 3 and game.hero["name"] == "Aschenritter", "Solo-Raid beginnt mit Held und drei Upgrades")
 	battle.connection_menu_requested.emit()
 	_check(connection_overlay.visible, "Verbindungsmenü ist während des Kampfes erreichbar")
 	connection_overlay.close_requested.emit()
 	_check(not connection_overlay.visible, "Verbindungsmenü lässt sich wieder schließen")
 	game.resolution_delay = 0.0
-	game.force_hand_for_tests(["ash_mage", "root_beast", "sun_champion"])
+	game.force_hand_for_tests(["ash_blade", "life_steal", "bone_guard"])
 	var cards: Array = battle.get("_cards")
 	var feedback_events: Array = []
 	battle.combat_sequence_started.connect(func(card_name: String, boss_damage: int, player_damage: int) -> void: feedback_events.append([card_name, boss_damage, player_damage]))
 	battle.call("_on_card_pressed", cards[0])
-	_check(game.boss_hp == 27 and game.player_hp == 18, "Ein PC-Klick nutzt unverändert die autoritative Kampfentscheidung")
-	_check(feedback_events.size() == 1 and feedback_events[0] == ["Aschehexer", 3, 2], "TV-Feedback übernimmt exakt die bestätigten Schadenswerte")
+	_check(game.boss_hp == 55 and game.player_hp == 18 and game.ability_ranks["ash_blade"] == 1, "Ein PC-Klick wertet auf und startet den autoritativen Heldenangriff")
+	_check(feedback_events.size() == 1 and feedback_events[0] == ["Aschenklinge", 5, 2], "TV-Feedback übernimmt exakt die bestätigten Schadenswerte")
 	if server:
 		server.stop()
 	main.free()

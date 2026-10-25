@@ -64,7 +64,7 @@ func _build_home() -> Control:
 	column.add_child(logo)
 
 	var subtitle := Label.new()
-	subtitle.text = "ALPHA 0.1.4  ·  TV + SMARTPHONE"
+	subtitle.text = "ALPHA 0.1.5  ·  HERO PROGRESSION"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 18)
 	subtitle.add_theme_color_override("font_color", UIStyle.CYAN)
@@ -100,7 +100,7 @@ func _build_rules() -> Control:
 	rules.custom_minimum_size = Vector2(620, 270)
 	rules.add_theme_font_size_override("normal_font_size", 20)
 	rules.add_theme_color_override("default_color", UIStyle.TEXT)
-	rules.text = "[color=#56d8ec]1.[/color] Jede Runde erhältst du drei zufällige Kreaturen.\n\n[color=#56d8ec]2.[/color] Wähle genau eine Karte. Ihre Angriffskraft trifft Morvath sofort.\n\n[color=#56d8ec]3.[/color] Überlebt Morvath, verursacht sein Gegenschlag 2 Schaden.\n\n[color=#56d8ec]4.[/color] Danach wird die Hand verworfen und die nächste Runde beginnt.\n\nBesiege Morvaths 30 Leben, bevor deine 20 Leben aufgebraucht sind."
+	rules.text = "[color=#56d8ec]1.[/color] Jede Runde erhältst du drei zufällige Upgrades.\n\n[color=#56d8ec]2.[/color] Ein Tipp schaltet eine Fähigkeit frei oder erhöht ihren Rang.\n\n[color=#56d8ec]3.[/color] Der Aschenritter greift danach automatisch mit allen aktiven Boni an.\n\n[color=#56d8ec]4.[/color] Morvath schlägt zurück, dann beginnt die nächste Auswahl.\n\nEntwickle deinen Helden und besiege Morvaths 60 Leben."
 	column.add_child(rules)
 	var back := _menu_button("ZURÜCK")
 	back.pressed.connect(show_home)
